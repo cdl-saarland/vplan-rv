@@ -17,7 +17,7 @@
 #include "AMDGPUSubtarget.h"
 #include "AMDGPUTargetMachine.h"
 #include "llvm/ADT/StringRef.h"
-#include "llvm/Analysis/DivergenceAnalysis.h"
+#include "llvm/Analysis/KernelDivergenceAnalysis.h"
 #include "llvm/Analysis/Loads.h"
 #include "llvm/CodeGen/Passes.h"
 #include "llvm/CodeGen/TargetPassConfig.h"
@@ -51,7 +51,7 @@ namespace {
 class AMDGPUCodeGenPrepare : public FunctionPass,
                              public InstVisitor<AMDGPUCodeGenPrepare, bool> {
   const SISubtarget *ST = nullptr;
-  DivergenceAnalysis *DA = nullptr;
+  KernelDivergenceAnalysis *DA = nullptr;
   Module *Mod = nullptr;
   bool HasUnsafeFPMath = false;
   AMDGPUAS AMDGPUASI;
@@ -157,7 +157,7 @@ public:
   StringRef getPassName() const override { return "AMDGPU IR optimizations"; }
 
   void getAnalysisUsage(AnalysisUsage &AU) const override {
-    AU.addRequired<DivergenceAnalysis>();
+    AU.addRequired<KernelDivergenceAnalysis>();
     AU.setPreservesAll();
  }
 };
@@ -543,7 +543,7 @@ bool AMDGPUCodeGenPrepare::runOnFunction(Function &F) {
 
   const TargetMachine &TM = TPC->getTM<TargetMachine>();
   ST = &TM.getSubtarget<SISubtarget>(F);
-  DA = &getAnalysis<DivergenceAnalysis>();
+  DA = &getAnalysis<KernelDivergenceAnalysis>();
   HasUnsafeFPMath = hasUnsafeFPMath(F);
 
   bool MadeChange = false;
@@ -561,7 +561,7 @@ bool AMDGPUCodeGenPrepare::runOnFunction(Function &F) {
 
 INITIALIZE_PASS_BEGIN(AMDGPUCodeGenPrepare, DEBUG_TYPE,
                       "AMDGPU IR optimizations", false, false)
-INITIALIZE_PASS_DEPENDENCY(DivergenceAnalysis)
+INITIALIZE_PASS_DEPENDENCY(KernelDivergenceAnalysis)
 INITIALIZE_PASS_END(AMDGPUCodeGenPrepare, DEBUG_TYPE, "AMDGPU IR optimizations",
                     false, false)
 

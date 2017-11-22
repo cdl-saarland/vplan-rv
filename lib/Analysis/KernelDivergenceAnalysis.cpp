@@ -1,4 +1,4 @@
-//===- DivergenceAnalysis.cpp --------- Divergence Analysis Implementation -==//
+//===- KernelDivergenceAnalysis.cpp --------- Kernel Divergence Analysis Implementation -==//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -64,7 +64,7 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "llvm/Analysis/DivergenceAnalysis.h"
+#include "llvm/Analysis/KernelDivergenceAnalysis.h"
 #include "llvm/Analysis/Passes.h"
 #include "llvm/Analysis/PostDominators.h"
 #include "llvm/Analysis/TargetTransformInfo.h"
@@ -263,25 +263,25 @@ void DivergencePropagator::propagate() {
 } /// end namespace anonymous
 
 // Register this pass.
-char DivergenceAnalysis::ID = 0;
-INITIALIZE_PASS_BEGIN(DivergenceAnalysis, "divergence", "Divergence Analysis",
+char KernelDivergenceAnalysis::ID = 0;
+INITIALIZE_PASS_BEGIN(KernelDivergenceAnalysis, "divergence", "Kernel Divergence Analysis",
                       false, true)
 INITIALIZE_PASS_DEPENDENCY(DominatorTreeWrapperPass)
 INITIALIZE_PASS_DEPENDENCY(PostDominatorTreeWrapperPass)
-INITIALIZE_PASS_END(DivergenceAnalysis, "divergence", "Divergence Analysis",
+INITIALIZE_PASS_END(KernelDivergenceAnalysis, "divergence", "Kernel Divergence Analysis",
                     false, true)
 
-FunctionPass *llvm::createDivergenceAnalysisPass() {
-  return new DivergenceAnalysis();
+FunctionPass *llvm::createKernelDivergenceAnalysisPass() {
+  return new KernelDivergenceAnalysis();
 }
 
-void DivergenceAnalysis::getAnalysisUsage(AnalysisUsage &AU) const {
+void KernelDivergenceAnalysis::getAnalysisUsage(AnalysisUsage &AU) const {
   AU.addRequired<DominatorTreeWrapperPass>();
   AU.addRequired<PostDominatorTreeWrapperPass>();
   AU.setPreservesAll();
 }
 
-bool DivergenceAnalysis::runOnFunction(Function &F) {
+bool KernelDivergenceAnalysis::runOnFunction(Function &F) {
   auto *TTIWP = getAnalysisIfAvailable<TargetTransformInfoWrapperPass>();
   if (TTIWP == nullptr)
     return false;
@@ -302,7 +302,7 @@ bool DivergenceAnalysis::runOnFunction(Function &F) {
   return false;
 }
 
-void DivergenceAnalysis::print(raw_ostream &OS, const Module *) const {
+void KernelDivergenceAnalysis::print(raw_ostream &OS, const Module *) const {
   if (DivergentValues.empty())
     return;
   const Value *FirstDivergentValue = *DivergentValues.begin();

@@ -1,4 +1,4 @@
-//===- llvm/Analysis/DivergenceAnalysis.h - Divergence Analysis -*- C++ -*-===//
+//===- llvm/Analysis/KernelDivergenceAnalysis.h - KernelDivergence Analysis -*- C++ -*-===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -7,8 +7,8 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// The divergence analysis is an LLVM pass which can be used to find out
-// if a branch instruction in a GPU program is divergent or not. It can help
+// The kernel divergence analysis is an LLVM pass which can be used to find out
+// if a branch instruction in a GPU program (kernel) is divergent or not. It can help
 // branch optimizations such as jump threading and loop unswitching to make
 // better decisions.
 //
@@ -22,12 +22,12 @@
 
 namespace llvm {
 class Value;
-class DivergenceAnalysis : public FunctionPass {
+class KernelDivergenceAnalysis : public FunctionPass {
 public:
   static char ID;
 
-  DivergenceAnalysis() : FunctionPass(ID) {
-    initializeDivergenceAnalysisPass(*PassRegistry::getPassRegistry());
+  KernelDivergenceAnalysis() : FunctionPass(ID) {
+    initializeKernelDivergenceAnalysisPass(*PassRegistry::getPassRegistry());
   }
 
   void getAnalysisUsage(AnalysisUsage &AU) const override;

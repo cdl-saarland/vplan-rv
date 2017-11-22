@@ -25,7 +25,7 @@ add_llvm_library(LLVMAnalysis
   Delinearization.cpp
   DemandedBits.cpp
   DependenceAnalysis.cpp
-  DivergenceAnalysis.cpp
+  KernelDivergenceAnalysis.cpp
   DomPrinter.cpp
   DominanceFrontier.cpp
   EHPersonalities.cpp

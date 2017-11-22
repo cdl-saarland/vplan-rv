@@ -289,7 +289,7 @@ public:
   /// \brief Returns whether V is a source of divergence.
   ///
   /// This function provides the target-dependent information for
-  /// the target-independent DivergenceAnalysis. DivergenceAnalysis first
+  /// the target-independent KernelDivergenceAnalysis. KernelDivergenceAnalysis first
   /// builds the dependency graph, and then runs the reachability algorithm
   /// starting with the sources of divergence.
   bool isSourceOfDivergence(const Value *V) const;
