@@ -118,6 +118,7 @@ void initializeDemandedBitsWrapperPassPass(PassRegistry&);
 void initializeDependenceAnalysisPass(PassRegistry&);
 void initializeDependenceAnalysisWrapperPassPass(PassRegistry&);
 void initializeDetectDeadLanesPass(PassRegistry&);
+void initializeKernelDivergenceAnalysisPass(PassRegistry&);
 void initializeDivRemPairsLegacyPassPass(PassRegistry&);
 void initializeDivergenceAnalysisPass(PassRegistry&);
 void initializeDomOnlyPrinterPass(PassRegistry&);
