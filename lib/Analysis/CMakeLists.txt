@@ -8,6 +8,7 @@ add_llvm_library(LLVMAnalysis
   BasicAliasAnalysis.cpp
   BlockFrequencyInfo.cpp
   BlockFrequencyInfoImpl.cpp
+  BranchDependenceAnalysis.cpp
   BranchProbabilityInfo.cpp
   CFG.cpp
   CFGPrinter.cpp
@@ -25,7 +26,9 @@ add_llvm_library(LLVMAnalysis
   Delinearization.cpp
   DemandedBits.cpp
   DependenceAnalysis.cpp
-  KernelDivergenceAnalysis.cpp
+  DFG.cpp
+  DivergenceAnalysis.cpp
+  DivPathDecider.cpp
   DomPrinter.cpp
   DominanceFrontier.cpp
   EHPersonalities.cpp
@@ -38,6 +41,7 @@ add_llvm_library(LLVMAnalysis
   Interval.cpp
   IntervalPartition.cpp
   IteratedDominanceFrontier.cpp
+  KernelDivergenceAnalysis.cpp
   LazyBranchProbabilityInfo.cpp
   LazyBlockFrequencyInfo.cpp
   LazyCallGraph.cpp
