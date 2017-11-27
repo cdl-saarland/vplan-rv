@@ -91,6 +91,7 @@ namespace {
       (void) llvm::createDeadStoreEliminationPass();
       (void) llvm::createDependenceAnalysisWrapperPass();
       (void) llvm::createKernelDivergenceAnalysisPass();
+      (void) llvm::createLoopDivergencePrinterPass();
       (void) llvm::createDomOnlyPrinterPass();
       (void) llvm::createDomPrinterPass();
       (void) llvm::createDomOnlyViewerPass();

@@ -40,6 +40,7 @@ void llvm::initializeAnalysis(PassRegistry &Registry) {
   initializeDelinearizationPass(Registry);
   initializeDemandedBitsWrapperPassPass(Registry);
   initializeKernelDivergenceAnalysisPass(Registry);
+  initializeLoopDivergencePrinterPass(Registry);
   initializeDominanceFrontierWrapperPassPass(Registry);
   initializeDomViewerPass(Registry);
   initializeDomPrinterPass(Registry);
