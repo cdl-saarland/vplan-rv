@@ -68,6 +68,13 @@ namespace llvm {
 
   //===--------------------------------------------------------------------===//
   //
+  // createLoopDivergencePrinterPass - This pass determines which branches in a loop
+  // are divergent.
+  //
+  FunctionPass *createLoopDivergencePrinterPass();
+
+  //===--------------------------------------------------------------------===//
+  //
   // Minor pass prototypes, allowing us to expose them through bugpoint and
   // analyze.
   FunctionPass *createInstCountPass();

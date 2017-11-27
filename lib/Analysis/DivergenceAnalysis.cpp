@@ -188,11 +188,34 @@ DivergenceAnalysis::isDivergent(const Value & val) const {
   return false;
 }
 
+void
+DivergenceAnalysis::print(raw_ostream &OS, const Module *) const {
+  if (divergentValues.empty())
+    return;
+  const Value *FirstDivergentValue = *divergentValues.begin();
+  const Function *F;
+  if (const Argument *Arg = dyn_cast<Argument>(FirstDivergentValue)) {
+    F = Arg->getParent();
+  } else if (const Instruction *I =
+                 dyn_cast<Instruction>(FirstDivergentValue)) {
+    F = I->getParent()->getParent();
+  } else {
+    llvm_unreachable("Only arguments and instructions can be divergent");
+  }
+
+  OS << "Divergence of loop " << loop.getName() << " {\n";
+  // Iterate instructions using instructions() to ensure a deterministic order.
+  for (auto &I : instructions(F)) {
+    if (divergentValues.count(&I))
+      OS << "DIVERGENT:" << I << "\n";
+  }
+  OS << "}\n";
+}
+
 
 // class LoopDivergenceAnalysis
-LoopDivergenceAnalysis::LoopDivergenceAnalysis(Function & F, const Loop & loop, const PostDominatorTree & postDomTree, const DominatorTree & domTree, const LoopInfo & loopInfo)
-: BDA(F, postDomTree, domTree, loopInfo)
-, DA(loop, BDA)
+LoopDivergenceAnalysis::LoopDivergenceAnalysis(BranchDependenceAnalysis & BDA, const Loop & loop)
+: DA(loop, BDA)
 {
   for (const auto & I : *loop.getHeader()) {
     if (!isa<PHINode>(I)) break;
@@ -203,3 +226,68 @@ LoopDivergenceAnalysis::LoopDivergenceAnalysis(Function & F, const Loop & loop, 
 
 bool
 LoopDivergenceAnalysis::isDivergent(const Value & val) const { return DA.isDivergent(val); }
+
+void
+LoopDivergenceAnalysis::print(raw_ostream &OS, const Module * mod) const {
+  DA.print(OS, mod);
+}
+
+
+
+
+
+// class LoopDivergencePrinter
+bool
+LoopDivergencePrinter::runOnFunction(Function & F) {
+  const PostDominatorTree & postDomTree = getAnalysis<PostDominatorTreeWrapperPass>().getPostDomTree();
+  const DominatorTree & domTree = getAnalysis<DominatorTreeWrapperPass>().getDomTree();
+  const LoopInfo & loopInfo = getAnalysis<LoopInfoWrapperPass>().getLoopInfo();
+  BDA = make_unique<BranchDependenceAnalysis>(F, postDomTree, domTree, loopInfo);
+
+  std::vector<const Loop*> loopStack;
+  for (const auto * loop : loopInfo) {
+    loopStack.push_back(loop);
+  }
+
+  while (!loopStack.empty()) {
+    const auto * loop = loopStack.back();
+    loopStack.pop_back();
+
+    loopDivInfo[loop] = make_unique<LoopDivergenceAnalysis>(*BDA, *loop);
+    for (const auto * childLoop : *loop) {
+      loopStack.push_back(childLoop);
+    }
+  }
+
+  return false;
+}
+
+void
+LoopDivergencePrinter::print(raw_ostream &OS, const Module * mod) const {
+  for (auto & it : loopDivInfo) {
+    it.second->print(OS, mod);
+  }
+}
+
+
+// Register this pass.
+char LoopDivergencePrinter::ID = 0;
+INITIALIZE_PASS_BEGIN(LoopDivergencePrinter, "loop-divergence", "Loop Divergence Printer",
+                      false, true)
+INITIALIZE_PASS_DEPENDENCY(DominatorTreeWrapperPass)
+INITIALIZE_PASS_DEPENDENCY(PostDominatorTreeWrapperPass)
+INITIALIZE_PASS_DEPENDENCY(LoopInfoWrapperPass)
+INITIALIZE_PASS_END(LoopDivergencePrinter, "loop-divergence", "Loop Divergence Printer",
+                    false, true)
+
+FunctionPass *llvm::createLoopDivergencePrinterPass() {
+  return new LoopDivergencePrinter();
+}
+
+void
+LoopDivergencePrinter::getAnalysisUsage(AnalysisUsage &AU) const {
+  AU.addRequired<DominatorTreeWrapperPass>();
+  AU.addRequired<PostDominatorTreeWrapperPass>();
+  AU.addRequired<LoopInfoWrapperPass>();
+  AU.setPreservesAll();
+}
