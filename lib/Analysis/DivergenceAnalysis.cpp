@@ -65,6 +65,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "llvm/Analysis/DivergenceAnalysis.h"
+#include "llvm/Analysis/LoopInfo.h"
 #include "llvm/Analysis/Passes.h"
 #include "llvm/Analysis/PostDominators.h"
 #include "llvm/Analysis/TargetTransformInfo.h"
@@ -75,83 +76,84 @@
 #include "llvm/IR/Value.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/raw_ostream.h"
-#include "llvm/Analysis/LoopInfo.h"
 #include <vector>
 
 using namespace llvm;
 
 // class DivergenceAnalysis
-DivergenceAnalysis::DivergenceAnalysis(const Loop & _loop, BranchDependenceAnalysis & _BDA)
-: loop(_loop)
-, BDA(_BDA)
-, divergentValues()
-{}
+DivergenceAnalysis::DivergenceAnalysis(const Loop &_loop,
+                                       BranchDependenceAnalysis &_BDA)
+    : loop(_loop), BDA(_BDA), divergentValues() {}
 
-void
-DivergenceAnalysis::markDivergent(const Value & divVal) {
+void DivergenceAnalysis::markDivergent(const Value &divVal) {
   divergentValues.insert(&divVal);
 }
 
-bool
-DivergenceAnalysis::updateTerminator(const TerminatorInst & term) const {
-  if (term.getNumSuccessors() <= 1) return false;
-  if (auto * branchInst = dyn_cast<BranchInst>(&term)) {
+bool DivergenceAnalysis::updateTerminator(const TerminatorInst &term) const {
+  if (term.getNumSuccessors() <= 1)
+    return false;
+  if (auto *branchInst = dyn_cast<BranchInst>(&term)) {
     assert(branchInst->isConditional());
     return isDivergent(*branchInst->getCondition());
-  } else if (auto * switchInst = dyn_cast<SwitchInst>(&term)) {
+  } else if (auto *switchInst = dyn_cast<SwitchInst>(&term)) {
     return isDivergent(*switchInst->getCondition());
   } else if (isa<InvokeInst>(term)) {
     return false; // ignore abnormal executions through landingpad
-  } else { abort(); }
+  } else {
+    abort();
+  }
 }
 
-bool
-DivergenceAnalysis::updateNormalInstruction(const Instruction & I) const {
+bool DivergenceAnalysis::updateNormalInstruction(const Instruction &I) const {
   // TODO function calls with side effects, etc
-  for (const auto & op : I.operands()) {
-    if (isDivergent(*op)) return true;
+  for (const auto &op : I.operands()) {
+    if (isDivergent(*op))
+      return true;
   }
   return false;
 }
 
-bool
-DivergenceAnalysis::updatePHINode(const PHINode & phi) const {
+bool DivergenceAnalysis::updatePHINode(const PHINode &phi) const {
   // join in divergence of parent block
-  if (isDivergent(*phi.getParent())) return true;
+  if (isDivergent(*phi.getParent()))
+    return true;
   // join in incoming value divergence
   for (size_t i = 0; i < phi.getNumIncomingValues(); ++i) {
-    if (isDivergent(*phi.getIncomingValue(i))) return true;
+    if (isDivergent(*phi.getIncomingValue(i)))
+      return true;
   }
   return false;
 }
 
-void
-DivergenceAnalysis::compute() {
+void DivergenceAnalysis::compute() {
   // push all users of seed values to worklist
-  for (auto * divVal : divergentValues) {
-    for (const auto * user : divVal->users()) {
-      const auto * userInst = dyn_cast<const Instruction>(user);
-      if (!userInst) continue;
+  for (auto *divVal : divergentValues) {
+    for (const auto *user : divVal->users()) {
+      const auto *userInst = dyn_cast<const Instruction>(user);
+      if (!userInst)
+        continue;
       worklist.push_back(userInst);
     }
   }
 
   // propagate divergence
   while (!worklist.empty()) {
-    const Instruction & I = *worklist.back();
+    const Instruction &I = *worklist.back();
     worklist.pop_back();
     bool wasDivergent = isDivergent(I);
-    if (wasDivergent) continue;
+    if (wasDivergent)
+      continue;
 
     if (isa<TerminatorInst>(I)) {
       // spread to phi nodes
-      auto & term = cast<TerminatorInst>(I);
+      auto &term = cast<TerminatorInst>(I);
       if (updateTerminator(term)) {
         markDivergent(term);
-        for (const auto * joinBlock : BDA.join_blocks(term)) {
+        for (const auto *joinBlock : BDA.join_blocks(term)) {
           markDivergent(*joinBlock);
-          for (auto & blockInst : *joinBlock) {
-            if (!isa<PHINode>(blockInst)) break;
+          for (auto &blockInst : *joinBlock) {
+            if (!isa<PHINode>(blockInst))
+              break;
             worklist.push_back(&blockInst);
           }
         }
@@ -170,26 +172,27 @@ DivergenceAnalysis::compute() {
     // spread divergence to users
     if (divergentUpd) {
       markDivergent(I);
-      for (const auto * user : I.users()) {
-        const auto * userInst = dyn_cast<const Instruction>(user);
-        if (!userInst) continue;
+      for (const auto *user : I.users()) {
+        const auto *userInst = dyn_cast<const Instruction>(user);
+        if (!userInst)
+          continue;
 
         // only compute divergent inside loop
-        if (!loop.contains(userInst->getParent())) continue;
+        if (!loop.contains(userInst->getParent()))
+          continue;
         worklist.push_back(userInst);
       }
     }
   }
 }
 
-bool
-DivergenceAnalysis::isDivergent(const Value & val) const {
-  if (divergentValues.count(&val)) return true;
+bool DivergenceAnalysis::isDivergent(const Value &val) const {
+  if (divergentValues.count(&val))
+    return true;
   return false;
 }
 
-void
-DivergenceAnalysis::print(raw_ostream &OS, const Module *) const {
+void DivergenceAnalysis::print(raw_ostream &OS, const Module *) const {
   if (divergentValues.empty())
     return;
   const Value *FirstDivergentValue = *divergentValues.begin();
@@ -212,49 +215,47 @@ DivergenceAnalysis::print(raw_ostream &OS, const Module *) const {
   OS << "}\n";
 }
 
-
 // class LoopDivergenceAnalysis
-LoopDivergenceAnalysis::LoopDivergenceAnalysis(BranchDependenceAnalysis & BDA, const Loop & loop)
-: DA(loop, BDA)
-{
-  for (const auto & I : *loop.getHeader()) {
-    if (!isa<PHINode>(I)) break;
+LoopDivergenceAnalysis::LoopDivergenceAnalysis(BranchDependenceAnalysis &BDA,
+                                               const Loop &loop)
+    : DA(loop, BDA) {
+  for (const auto &I : *loop.getHeader()) {
+    if (!isa<PHINode>(I))
+      break;
     DA.markDivergent(I);
   }
   DA.compute();
 }
 
-bool
-LoopDivergenceAnalysis::isDivergent(const Value & val) const { return DA.isDivergent(val); }
+bool LoopDivergenceAnalysis::isDivergent(const Value &val) const {
+  return DA.isDivergent(val);
+}
 
-void
-LoopDivergenceAnalysis::print(raw_ostream &OS, const Module * mod) const {
+void LoopDivergenceAnalysis::print(raw_ostream &OS, const Module *mod) const {
   DA.print(OS, mod);
 }
 
-
-
-
-
 // class LoopDivergencePrinter
-bool
-LoopDivergencePrinter::runOnFunction(Function & F) {
-  const PostDominatorTree & postDomTree = getAnalysis<PostDominatorTreeWrapperPass>().getPostDomTree();
-  const DominatorTree & domTree = getAnalysis<DominatorTreeWrapperPass>().getDomTree();
-  const LoopInfo & loopInfo = getAnalysis<LoopInfoWrapperPass>().getLoopInfo();
-  BDA = make_unique<BranchDependenceAnalysis>(F, domTree, postDomTree, loopInfo);
+bool LoopDivergencePrinter::runOnFunction(Function &F) {
+  const PostDominatorTree &postDomTree =
+      getAnalysis<PostDominatorTreeWrapperPass>().getPostDomTree();
+  const DominatorTree &domTree =
+      getAnalysis<DominatorTreeWrapperPass>().getDomTree();
+  const LoopInfo &loopInfo = getAnalysis<LoopInfoWrapperPass>().getLoopInfo();
+  BDA =
+      make_unique<BranchDependenceAnalysis>(F, domTree, postDomTree, loopInfo);
 
-  std::vector<const Loop*> loopStack;
-  for (const auto * loop : loopInfo) {
+  std::vector<const Loop *> loopStack;
+  for (const auto *loop : loopInfo) {
     loopStack.push_back(loop);
   }
 
   while (!loopStack.empty()) {
-    const auto * loop = loopStack.back();
+    const auto *loop = loopStack.back();
     loopStack.pop_back();
 
     loopDivInfo[loop] = make_unique<LoopDivergenceAnalysis>(*BDA, *loop);
-    for (const auto * childLoop : *loop) {
+    for (const auto *childLoop : *loop) {
       loopStack.push_back(childLoop);
     }
   }
@@ -262,30 +263,27 @@ LoopDivergencePrinter::runOnFunction(Function & F) {
   return false;
 }
 
-void
-LoopDivergencePrinter::print(raw_ostream &OS, const Module * mod) const {
-  for (auto & it : loopDivInfo) {
+void LoopDivergencePrinter::print(raw_ostream &OS, const Module *mod) const {
+  for (auto &it : loopDivInfo) {
     it.second->print(OS, mod);
   }
 }
 
-
 // Register this pass.
 char LoopDivergencePrinter::ID = 0;
-INITIALIZE_PASS_BEGIN(LoopDivergencePrinter, "loop-divergence", "Loop Divergence Printer",
-                      false, true)
+INITIALIZE_PASS_BEGIN(LoopDivergencePrinter, "loop-divergence",
+                      "Loop Divergence Printer", false, true)
 INITIALIZE_PASS_DEPENDENCY(DominatorTreeWrapperPass)
 INITIALIZE_PASS_DEPENDENCY(PostDominatorTreeWrapperPass)
 INITIALIZE_PASS_DEPENDENCY(LoopInfoWrapperPass)
-INITIALIZE_PASS_END(LoopDivergencePrinter, "loop-divergence", "Loop Divergence Printer",
-                    false, true)
+INITIALIZE_PASS_END(LoopDivergencePrinter, "loop-divergence",
+                    "Loop Divergence Printer", false, true)
 
 FunctionPass *llvm::createLoopDivergencePrinterPass() {
   return new LoopDivergencePrinter();
 }
 
-void
-LoopDivergencePrinter::getAnalysisUsage(AnalysisUsage &AU) const {
+void LoopDivergencePrinter::getAnalysisUsage(AnalysisUsage &AU) const {
   AU.addRequired<DominatorTreeWrapperPass>();
   AU.addRequired<PostDominatorTreeWrapperPass>();
   AU.addRequired<LoopInfoWrapperPass>();
