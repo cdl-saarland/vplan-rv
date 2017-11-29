@@ -242,7 +242,7 @@ LoopDivergencePrinter::runOnFunction(Function & F) {
   const PostDominatorTree & postDomTree = getAnalysis<PostDominatorTreeWrapperPass>().getPostDomTree();
   const DominatorTree & domTree = getAnalysis<DominatorTreeWrapperPass>().getDomTree();
   const LoopInfo & loopInfo = getAnalysis<LoopInfoWrapperPass>().getLoopInfo();
-  BDA = make_unique<BranchDependenceAnalysis>(F, postDomTree, domTree, loopInfo);
+  BDA = make_unique<BranchDependenceAnalysis>(F, domTree, postDomTree, loopInfo);
 
   std::vector<const Loop*> loopStack;
   for (const auto * loop : loopInfo) {

@@ -1,311 +1,267 @@
-//===- BranchDependenceAnalysis.cpp ----------------*- C++ -*-===//
+//===- BranchDependenceAnalysis.cpp - Divergent Branch Dependence Calculation --===//
 //
-//                     The Region Vectorizer
+//                     The LLVM Compiler Infrastructure
 //
 // This file is distributed under the University of Illinois Open Source
 // License. See LICENSE.TXT for details.
 //
-// @authors simon
+//===----------------------------------------------------------------------===//
 //
+// This file implements an algorithm that returns for a divergent branch
+// the set of basic blocks whose phi nodes become divergent due to divergent control.
+// These are the blocks that are reachable by two disjoint paths from the branch
+// or loop exits that have a reaching path that is disjoint from a path to the loop latch.
 //
-
+// The BranchDependenceAnalysis is used in the DivergenceAnalysis to model control-induced
+// divergence in phi nodes.
+//
+//===----------------------------------------------------------------------===//
 #include <llvm/Analysis/BranchDependenceAnalysis.h>
-#include <llvm/Analysis/PostDominators.h>
 #include <llvm/IR/Dominators.h>
 #include <llvm/IR/CFG.h>
 #include <llvm/IR/Function.h>
 #include <llvm/IR/BasicBlock.h>
+#include <llvm/Analysis/PostDominators.h>
+#include <llvm/ADT/SmallPtrSet.h>
 
-using namespace llvm;
-
-
-#if 0
-#define IF_DEBUG_BDA if (true)
-#else
-#define IF_DEBUG_BDA if (false)
-#endif
-
+#include <stack>
 
 namespace llvm {
 
-ConstBlockSet BranchDependenceAnalysis::emptySet;
 
-inline
-void
-IntersectInPlace(ConstBlockSet & x, const ConstBlockSet & y) {
-  for (auto a : x) {
-    if (!y.count(a)) x.erase(a);
-  }
-}
 
-inline
-ConstBlockSet
-Intersect(const ConstBlockSet & x, const ConstBlockSet & y) {
-  ConstBlockSet res;
-  for (auto a : x) {
-    if (y.count(a)) res.insert(a);
-  }
-  for (auto b : y) {
-    if (x.count(b)) res.insert(b);
-  }
-  return res;
-}
+// class DivPathDecider
 
-inline
-void MergeIn(ConstBlockSet & m, ConstBlockSet & other) {
-  for (auto b : other) m.insert(b);
-}
+DivPathDecider::~DivPathDecider() {}
 
-inline
-void
-IntersectAndMerge(ConstBlockSet & accu, const ConstBlockSet & a, const ConstBlockSet & b) {
-  for (auto x : a) {
-    if (b.count(x)) {
-      accu.insert(x);
-    }
-  }
-}
-
-inline
-void
-Subtract(ConstBlockSet & a, const ConstBlockSet & b) {
-  for (auto y : b) {
-    a.erase(y);
-  }
-}
-
-inline
-void
-DumpSet(const ConstBlockSet & blocks) {
-  errs() << "{";
-  for (const auto * bb : blocks) {
-    errs() << ", " << bb->getName();
-  }
-  errs() << "}";
-}
-
-inline
-void
-GetDomRegion(DomTreeNodeBase<BasicBlock> & domNode, ConstBlockSet & domRegion) {
-  domRegion.insert(domNode.getBlock());
-  for (auto it = domNode.begin(); it != domNode.end(); ++it) {
-    GetDomRegion(**it, domRegion);
-  }
-}
-
-BranchDependenceAnalysis::BranchDependenceAnalysis(Function & F,
-                                                   const PostDominatorTree & postDomTree,
-                                                   const DominatorTree & domTree,
-                                                   const LoopInfo & _loopInfo)
-: pdClosureMap()
-, domClosureMap()
-, effectedBlocks_old()
-, cdg(postDomTree)
-, dfg(domTree)
-, loopInfo(_loopInfo)
+const DivPathDecider::Node*
+DivPathDecider::findPath(const Node& source,
+                         const NodeList& sinks,
+                         const EdgeSet& flow,
+                         PredecessorMap& parent,
+                         const Loop* TheLoop) const
 {
-  cdg.create(F);
-  dfg.create(F);
+  DenseSet<const Node*> visited;
+  std::stack<const Node*> stack;
+  stack.push(&source);
 
-  IF_DEBUG_BDA errs() << "-- frontiers --\n";
-  for (auto & block : F) {
+  while (!stack.empty()) {
+    const Node* node = stack.top();
+    stack.pop();
+    visited.insert(node);
 
-    ConstBlockSet pdClosure, domClosure;
-    computePostDomClosure(block, pdClosure);
-    computeDomClosure(block, domClosure);
+    const BasicBlock& runner = node->BB;
 
-    domClosure.insert(&block);
-    pdClosure.insert(&block);
-
-    IF_DEBUG_BDA {
-      errs() << block.getName() << " :\n\t DFG: ";
-      DumpSet(domClosure);
-      errs() << "\n\t PDF: ";
-      DumpSet(pdClosure);
-      errs() << "\n";
+    auto found = std::find(sinks.begin(), sinks.end(), node);
+    if (found != sinks.end()) {
+      return *found;
     }
 
-    pdClosureMap[&block] = pdClosure;
-    domClosureMap[&block] = domClosure;
-  }
-
-  IF_DEBUG_BDA {
-    errs() << "-- branch dependence analysis --\n";
-    F.dump();
-  }
-
-  // maps phi blocks to divergence causing branches
-  DenseMap<const BasicBlock*, ConstBlockSet> inverseMap;
-// compute cd* for all blocks
-
-
-  IF_DEBUG_BDA errs() << "-- branch dependence --\n";
-  for (auto & z : F) {
-    ConstBlockSet branchBlocks;
-
-    for (auto itPred = pred_begin(&z), itEnd = pred_end(&z); itPred != itEnd; ++itPred) {
-      auto * x = *itPred;
-      auto xClosure = pdClosureMap[x];
-
-      for (auto itOtherPred = pred_begin(&z); itOtherPred != itPred; ++itOtherPred) {
-        auto * y = *itOtherPred;
-        auto yClosure = pdClosureMap[y];
-
-        IF_DEBUG_BDA { errs() << "z = " << z.getName() << " with x = " << x->getName() << " , y = " << y->getName() << "\n"; }
-
-        // early exit on: x reaches y or y reaches x
-        if (yClosure.count(x)) {
-          // x is in the PDF of y
-          bool added = branchBlocks.insert(x).second;
-          IF_DEBUG_BDA { if (added) errs() << "\tx reaches y: add " << x->getName() << "\n"; }
-        } else if (xClosure.count(y)) {
-          // y is in the PDF of x
-          bool added = branchBlocks.insert(y).second;
-          IF_DEBUG_BDA { if (added) errs() << "\ty reaches x: add " << y->getName() << "\n"; }
-        }
-
-        // intersection (set of binary branches that are reachable from both x and y)
-        auto xyPostDomClosure = Intersect(yClosure, xClosure);
-
-        // iterate over list of candidates
-        for (auto * brBlock : xyPostDomClosure) {
-          if (branchBlocks.count(brBlock)) continue; // already added by early exit
-
-          IF_DEBUG_BDA errs() << "# disjoint paths from A = " << brBlock->getName() << " to z = " << z.getName() << "\n";
-
-          // check if there can exist a disjoint path
-          bool foundDisjointPath = false;
-
-          // for all (disjoin) pairs of leaving edges
-          for (auto itSucc = succ_begin(brBlock), itEndSucc = succ_end(brBlock); !foundDisjointPath && itSucc != itEndSucc; ++itSucc) {
-            auto * b = *itSucc;
-            auto bClosure = domClosureMap[b];
-
-            for (auto itOtherSucc = succ_begin(brBlock); !foundDisjointPath && itOtherSucc != itSucc; ++itOtherSucc) {
-              auto * c = *itOtherSucc;
-              if (b == c) continue; // multi exits to the same target (switches)
-
-              auto cClosure = domClosureMap[c];
-              auto bcDomClosure = Intersect(bClosure, cClosure);
-
-              if (bClosure.count(&z) && cClosure.count(&z)) {
-                foundDisjointPath = true;
-                break;
-              }
-            }
+    if (node->type == Node::OUT) {
+      // Successors
+      for (auto* succ : llvm::successors(&runner)) {
+        const Node* next = getInNode(*succ);
+        if (!TheLoop || TheLoop->contains(&runner)) {
+          if (visited.count(next) == 0 && !flow.count({node, next})) {
+            stack.push(next);
+            parent[next] = node;
           }
+        }
+      }
 
-          // we found a disjoint path from brBlock to block
-          if (foundDisjointPath) {
-            IF_DEBUG_BDA errs() << "Adding " << brBlock->getName() << "\n";
-            branchBlocks.insert(brBlock);
+      // Backwards split edge
+      const Node* splitIN = getInNode(runner);
+      if (visited.count(splitIN) == 0 && flow.count({splitIN, node})) {
+        stack.push(splitIN);
+        parent[splitIN] = node;
+      }
+    } else {
+      // Traverse split edge
+      const Node* splitOUT = getOutNode(runner);
+      if (visited.count(splitOUT) == 0 && !flow.count({node, splitOUT})) {
+        stack.push(splitOUT);
+        parent[splitOUT] = node;
+      }
+
+      // Predecessors
+      for (auto* pred : llvm::predecessors(&runner)) {
+        const Node* next = getOutNode(*pred);
+        if (!TheLoop || TheLoop->contains(&runner)) {
+          if (visited.count(next) == 0 && flow.count({next, node})) {
+            stack.push(next);
+            parent[next] = node;
           }
         }
       }
     }
-
-    inverseMap[&z] = branchBlocks;
   }
-  IF_DEBUG_BDA errs () << "-- DONE --\n";
 
+  return nullptr;
+}
 
-  IF_DEBUG_BDA {
-    errs() << "-- Mapping of phi blocks to branches --\n";
-    for (auto it : inverseMap) {
-      errs() << it.first->getName() << " : ";
-      DumpSet(it.second);
-      errs() << "\n";
+bool DivPathDecider::inducesDivergentExit(const BasicBlock& From,
+                                          const BasicBlock& LoopExit,
+                                          const Loop& loop) const
+{
+  if (&From == loop.getLoopLatch()) {
+    return LoopExit.getUniquePredecessor() == &From;
+  }
+
+  const Node* source = getOutNode(From);
+  NodeList sinks = { getOutNode(LoopExit), getInNode(*loop.getHeader()) };
+  return disjointPaths(*source, sinks, 2, &loop);
+}
+
+// Find n vertex-disjoint paths from A to B, this algorithm is a specialization of Ford-Fulkerson,
+// that terminates after a flow of n is found. Running time is thus O(Edges) * n
+bool DivPathDecider::disjointPaths(const BasicBlock& From, const BasicBlock& To, unsigned int n) const {
+  const Node* source = getOutNode(From);
+  NodeList sinks = { getInNode(To) };
+  return disjointPaths(*source, sinks, n, nullptr);
+}
+
+bool DivPathDecider::disjointPaths(const Node& source,
+                                   const NodeList& sinks,
+                                   unsigned int n,
+                                   const Loop* loop) const
+{
+  EdgeSet flow;
+
+  for (unsigned i = 0; i < n; ++i) {
+    PredecessorMap parent;
+    const Node* sink = findPath(source, sinks, flow, parent, loop);
+    if (!sink) {
+      // Could not find a path.
+      return false;
     }
+
+    injectFlow(source, *sink, parent, flow);
   }
 
-// invert result for look up table
-  for (auto it : inverseMap) {
-    const auto * phiBlock = it.first;
-    for (auto branchBlock : it.second) {
-      auto * term = branchBlock->getTerminator();
-      auto * branch = dyn_cast<BranchInst>(term);
-      if (branch && !branch->isConditional()) continue; // non conditional branch
-      if (!branch && !isa<SwitchInst>(term)) continue; // otw, must be a switch
+  return true;
+}
 
-      IF_DEBUG_BDA { errs() << branchBlock->getName() << " inf -> " << phiBlock->getName() << "\n"; }
-      effectedBlocks_old[term].insert(phiBlock);
-    }
-  }
+void DivPathDecider::injectFlow(const Node& start,
+                                const Node& end,
+                                const PredecessorMap& parent,
+                                EdgeSet& flow) const
+{
+  const Node *prev;
+  for (
+      const Node * tail = &end;
+      tail && tail != &start;
+      tail = prev)
+  {
+    prev = parent.find(tail)->second;
 
-// final result dump
-  IF_DEBUG_BDA {
-    errs() << "-- Mapping of br blocks to phi blocks --\n";
-    for (auto it : effectedBlocks_old) {
-      auto * brBlock = it.first->getParent();
-      auto phiBlocks = it.second;
-      errs() << brBlock->getName() << " : "; DumpSet(phiBlocks); errs() <<"\n";
+    // Backwards edge reset
+    if (flow.erase({tail, prev})) {
+      continue;
+    } else {
+      // Ordinary edge insert
+      flow.insert({prev, tail});
     }
   }
 }
 
-/// \brief computes the iterated control dependence relation for @x
-void
-BranchDependenceAnalysis::computePostDomClosure(const BasicBlock & x, ConstBlockSet & closure) {
-  auto * xcd = cdg[&x];
-  if (!xcd) return;
-
-  for (auto cd_succ : xcd->preds()) {
-    auto * cdBlock = cd_succ->getBB();
-    if (closure.insert(cdBlock).second) {
-      computePostDomClosure(*cdBlock, closure);
-    }
+const DivPathDecider::Node* DivPathDecider::getInNode(const BasicBlock& BB) const {
+  auto found = innodes.find(&BB);
+  if (found != innodes.end()) {
+    return &found->second;
   }
+
+  auto itInsert = innodes.insert(std::make_pair(&BB, Node(Node::IN, BB))).first;
+  return &itInsert->second;
 }
 
-void
-BranchDependenceAnalysis::computeDomClosure(const BasicBlock & b, ConstBlockSet & closure) {
-  auto * bdf = dfg[&b];
-  if (!bdf) return;
-
-  for (auto df_pred : bdf->preds()) {
-    auto * dfBlock = df_pred->getBB();
-    if (closure.insert(dfBlock).second) {
-      computeDomClosure(*dfBlock, closure);
-    }
+const DivPathDecider::Node* DivPathDecider::getOutNode(const BasicBlock& BB) const {
+  auto found = outnodes.find(&BB);
+  if (found != outnodes.end()) {
+    return &found->second;
   }
+
+  auto itInsert = outnodes.insert(std::make_pair(&BB, Node(Node::OUT, BB))).first;
+  return &itInsert->second;
 }
+
+
+
+
+ConstBlockSet BranchDependenceAnalysis::emptySet;
+
+BranchDependenceAnalysis::BranchDependenceAnalysis(Function & F,
+                                                   const DominatorTree & _domTree,
+                                                   const PostDominatorTree & _postDomTree,
+                                                   const LoopInfo & _loopInfo)
+: DPD()
+, F(F)
+, domTree(_domTree)
+, postDomTree(_postDomTree)
+, loopInfo(_loopInfo)
+, joinBlocks()
+{}
+
+template<typename TreeT>
+static auto
+GetNode(const TreeT & tree, const BasicBlock & block) { return tree.getNode(const_cast<BasicBlock*>(&block)); }
 
 const ConstBlockSet&
 BranchDependenceAnalysis::join_blocks(const llvm::TerminatorInst& term) const {
-  auto it = effectedBlocks_old.find(&term);
-  if (it != effectedBlocks_old.end()) return it->second;
-  else return emptySet;
-#if 0
+  {
+    auto it = joinBlocks.find(&term);
+    if (it != joinBlocks.end()) return it->second;
+  }
 
-  const BasicBlock* parent = term.getParent();
+  const BasicBlock& termBlock = *term.getParent();
+  auto * termDomNode = GetNode(domTree, termBlock);
+  auto * termPDNode = GetNode(postDomTree, termBlock);
+  auto * pdBoundNode = termPDNode ? termPDNode->getIDom() : nullptr;
 
-  // Find divergent blocks by node-disjoint paths
-  // Refine the old analysis
-  for (const BasicBlock* BB : getEffectedBlocks_old(term)) {
-    if (DPD.divergentPaths(parent, BB)) {
-      effectedBlocks_new[&term].insert(BB);
+  ConstBlockSet termJoinBlocks;
+
+  // Find two disjoint paths from @termBlock to @phiBlock
+  // @phiBlocks have to be part of the enclosing SESE region of @termBlock
+  // we rule out any phiBlocks that are not part of the same SESE region as the terminator
+  // as these can not have two disjoint paths
+
+  for (const auto & phiBlock : F) {
+    // not a value join point
+    if (!isa<PHINode>(phiBlock.begin())) continue;
+
+    // termBlock not below idom of phiBlock -> no disjoint paths possible
+    auto * phiDomNode = GetNode(domTree, phiBlock);
+    assert(phiDomNode);
+    auto * domBoundNode = phiDomNode->getIDom();
+    if (domBoundNode && !domTree.dominates(domBoundNode, termDomNode))
+      continue;
+
+    // phiBlock not below imm post dom of termBlock -> no disjoint paths possible
+    auto * phiPDNode = GetNode(postDomTree, phiBlock);
+    if (pdBoundNode && !domTree.dominates(pdBoundNode, phiPDNode)) {
+      continue;
+    }
+
+    if (DPD.disjointPaths(termBlock, phiBlock)) {
+      // TODO pass dominance bounds to DPD to speedup search further
+      termJoinBlocks.insert(&phiBlock);
     }
   }
 
-#if 0
   // Find divergent loop exits
-  if (const Loop* l = loopInfo.getLoopFor(parent)) {
-    llvm::SmallVector<BasicBlock*, 4> exits;
-    l->getExitBlocks(exits);
+  if (const Loop* loop = loopInfo.getLoopFor(&termBlock)) {
+    llvm::SmallVector<BasicBlock*, 4> loopExits;
+    loop->getExitBlocks(loopExits);
 
-    for (const BasicBlock* exit : exits) {
-      if (DPD.inducesDivergentExit(parent, exit, l)) {
-        effectedBlocks_new[&term].insert(exit);
+    for (const BasicBlock* loopExit : loopExits) {
+      if (DPD.inducesDivergentExit(termBlock, *loopExit, *loop)) {
+        termJoinBlocks.insert(loopExit);
       }
     }
   }
-#endif
 
-  it = effectedBlocks_new.find(&term);
-  if (it == effectedBlocks_new.end()) return emptySet;
-  return it->second;
-#endif
+  auto it = joinBlocks.insert(std::make_pair(&term, termJoinBlocks));
+  assert(it.second);
+  return it.first->second;
 }
 
-
-} // namespace llvm
+}
