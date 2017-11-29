@@ -236,27 +236,18 @@ bool LoopDivergencePrinter::runOnFunction(Function &F) {
   BDA =
       make_unique<BranchDependenceAnalysis>(F, domTree, postDomTree, loopInfo);
 
-  std::vector<const Loop *> loopStack;
-  for (const auto *loop : loopInfo) {
-    loopStack.push_back(loop);
-  }
-
-  while (!loopStack.empty()) {
-    const auto *loop = loopStack.back();
-    loopStack.pop_back();
-
-    loopDivInfo[loop] = make_unique<LoopDivergenceAnalysis>(*BDA, *loop);
-    for (const auto *childLoop : *loop) {
-      loopStack.push_back(childLoop);
-    }
+  for (auto & BB : F) {
+    auto * loop = loopInfo.getLoopFor(&BB);
+    if (!loop || loop->getHeader() != &BB) continue;
+    loopDivInfo.push_back(make_unique<LoopDivergenceAnalysis>(*BDA, *loop));
   }
 
   return false;
 }
 
 void LoopDivergencePrinter::print(raw_ostream &OS, const Module *mod) const {
-  for (auto &it : loopDivInfo) {
-    it.second->print(OS, mod);
+  for (auto & divInfo : loopDivInfo) {
+    divInfo->print(OS, mod);
   }
 }
 

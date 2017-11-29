@@ -69,7 +69,7 @@ public:
 // loop divergence printer pass - for standalone testing
 class LoopDivergencePrinter : public FunctionPass {
   std::unique_ptr<BranchDependenceAnalysis> BDA;
-  DenseMap<const Loop *, std::unique_ptr<LoopDivergenceAnalysis>> loopDivInfo;
+  SmallVector<std::unique_ptr<LoopDivergenceAnalysis>, 6> loopDivInfo;
 
 public:
   static char ID;
