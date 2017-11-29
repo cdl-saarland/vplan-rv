@@ -7,14 +7,17 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// The divergence analysis is an LLVM pass which can be used to find out
-// if a branch instruction in a loop is divergent or not when the loop is vectorized.
+// The divergence analysis determines which instructions and branches are
+// divergent given a set of divergent source instructions.
 //
 //===----------------------------------------------------------------------===//
 
+#ifndef LLVM_ANALYSIS_DIVERGENCEANALYSIS_H
+#define LLVM_ANALYSIS_DIVERGENCEANALYSIS_H
+
 #include "llvm/ADT/DenseSet.h"
-#include "llvm/IR/Function.h"
 #include "llvm/Analysis/BranchDependenceAnalysis.h"
+#include "llvm/IR/Function.h"
 #include "llvm/Pass.h"
 #include <vector>
 
@@ -26,46 +29,48 @@ class Loop;
 class raw_ostream;
 // generic divergence analysis
 class DivergenceAnalysis {
-  const Loop & loop;
-  BranchDependenceAnalysis & BDA;
+  const Loop &loop;
+  BranchDependenceAnalysis &BDA;
   DenseSet<const Value *> divergentValues;
-  std::vector<const Instruction*> worklist;
+  std::vector<const Instruction *> worklist;
 
-  bool updateTerminator(const TerminatorInst & term) const;
-  bool updatePHINode(const PHINode & phi) const;
+  bool updateTerminator(const TerminatorInst &term) const;
+  bool updatePHINode(const PHINode &phi) const;
   // non-phi, non-terminator instruction
-  bool updateNormalInstruction(const Instruction & term) const;
+  bool updateNormalInstruction(const Instruction &term) const;
 
 public:
-  DivergenceAnalysis(const Loop & loop, BranchDependenceAnalysis & BDA);
+  DivergenceAnalysis(const Loop &loop, BranchDependenceAnalysis &BDA);
 
-  void markDivergent(const Value & divVal);
+  void markDivergent(const Value &divVal);
   void compute();
 
-  bool isDivergent(const Value & val) const;
+  bool isDivergent(const Value &val) const;
   void print(raw_ostream &OS, const Module *) const;
 };
 
 // divergence analysis frontend for loops
 class LoopDivergenceAnalysis {
   DivergenceAnalysis DA;
+
 public:
-  LoopDivergenceAnalysis(BranchDependenceAnalysis & BDA, const Loop & loop);
+  LoopDivergenceAnalysis(BranchDependenceAnalysis &BDA, const Loop &loop);
 
   // Returns true if V is divergent.
-  bool isDivergent(const Value & val) const;
+  bool isDivergent(const Value &val) const;
 
   // Returns true if V is uniform/non-divergent.
-  bool isUniform(const Value & val) const { return !isDivergent(val); }
+  bool isUniform(const Value &val) const { return !isDivergent(val); }
 
   // Print all divergent values in the loop.
   void print(raw_ostream &OS, const Module *) const;
 };
 
-// loop divergence analysis pass - for standalone testing
+// loop divergence printer pass - for standalone testing
 class LoopDivergencePrinter : public FunctionPass {
   std::unique_ptr<BranchDependenceAnalysis> BDA;
-  DenseMap<const Loop*, std::unique_ptr<LoopDivergenceAnalysis>> loopDivInfo;
+  DenseMap<const Loop *, std::unique_ptr<LoopDivergenceAnalysis>> loopDivInfo;
+
 public:
   static char ID;
 
@@ -81,4 +86,6 @@ public:
   void print(raw_ostream &OS, const Module *) const override;
 };
 
-} // End llvm namespace
+} // namespace llvm
+
+#endif // LLVM_ANALYSIS_DIVERGENCEANALYSIS_H
