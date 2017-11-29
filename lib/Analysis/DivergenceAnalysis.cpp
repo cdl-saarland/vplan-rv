@@ -195,16 +195,7 @@ bool DivergenceAnalysis::isDivergent(const Value &val) const {
 void DivergenceAnalysis::print(raw_ostream &OS, const Module *) const {
   if (divergentValues.empty())
     return;
-  const Value *FirstDivergentValue = *divergentValues.begin();
-  const Function *F;
-  if (const Argument *Arg = dyn_cast<Argument>(FirstDivergentValue)) {
-    F = Arg->getParent();
-  } else if (const Instruction *I =
-                 dyn_cast<Instruction>(FirstDivergentValue)) {
-    F = I->getParent()->getParent();
-  } else {
-    llvm_unreachable("Only arguments and instructions can be divergent");
-  }
+  const Function *F = loop.getHeader()->getParent();
 
   OS << "Divergence of loop " << loop.getName() << " {\n";
   // Iterate instructions using instructions() to ensure a deterministic order.
