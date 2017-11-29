@@ -1,31 +1,102 @@
-#ifndef _LLVM_BRANCHDEPENDENCEANALYSIS_H_
-#define _LLVM_BRANCHDEPENDENCEANALYSIS_H_
-
-//===- BranchDependenceAnalysis.cpp ----------------*- C++ -*-===//
+//===- BranchDependenceAnalysis.h - Divergent Branch Dependence Calculation ----*- C++ -*-===//
 //
-//                     The Region Vectorizer
+//                     The LLVM Compiler Infrastructure
 //
 // This file is distributed under the University of Illinois Open Source
 // License. See LICENSE.TXT for details.
 //
+//===----------------------------------------------------------------------===//
 //
+// This file defines the BranchDependenceAnalysis class, which computes for
+// every divergent branch the set of phi nodes that the branch will make divergent.
+//
+//===----------------------------------------------------------------------===//
+
+#ifndef LLVM_IR_BRANCHDEPENDENCEANALYSIS_H
+#define LLVM_IR_BRANCHDEPENDENCEANALYSIS_H
 
 #include <llvm/ADT/DenseMap.h>
 #include <llvm/ADT/SmallPtrSet.h>
 #include <llvm/Analysis/LoopInfo.h>
-#include <llvm/Analysis/DFG.h>
-#include <llvm/Analysis/DivPathDecider.h>
 
 namespace llvm {
-  class Function;
-  class BasicBlock;
-  class TerminatorInst;
-  class DominatorTree;
-  struct DominatorTree;
-  struct PostDominatorTree;
+class Function;
+class BasicBlock;
+class TerminatorInst;
+class DominatorTree;
+class PostDominatorTree;
+class TerminatorInst;
 
+// class DivPathDecider
+//
+// The DivPasthDecide class implements queries for disjoint paths in the CFG.
+// The BranchDependenceAnalysis relies on this information to infer control-induced divergence in
+// phi nodes, including LCSSA phis.
 using ConstBlockSet = SmallPtrSet<const BasicBlock*, 4>;
-using Edge = LoopBase<BasicBlock, Loop>::Edge;
+class DivPathDecider {
+public:
+  DivPathDecider() = default;
+  ~DivPathDecider();
+
+  bool inducesDivergentExit(const BasicBlock& From,
+                            const BasicBlock& LoopExit,
+                            const Loop& loop) const;
+
+  // Find n node-divergent paths from A to B, return true iff successful
+  bool disjointPaths(const BasicBlock& From,
+                     const BasicBlock& To,
+                     unsigned n = 2U) const;
+
+private:
+  struct Node {
+    enum SplitType { IN = 0, OUT = 1} type;
+    const BasicBlock& BB;
+
+    Node(SplitType type, const llvm::BasicBlock& BB) : type(type), BB(BB) {}
+  };
+  using NodeList = SmallVector<const Node*, 8>;
+  using Edge = std::pair<const Node*, const Node*>;
+  using EdgeSet = DenseSet<Edge>;
+  using PredecessorMap = DenseMap<const Node*, const Node*>;
+
+  mutable DenseMap<const BasicBlock*, Node> innodes, outnodes;
+
+  bool disjointPaths(const Node& source,
+                     const NodeList& sinks,
+                     unsigned n,
+                     const Loop* loop) const;
+
+  //! Finds a path from the source node to one of the sink nodes,
+  //! of which any edge has non-positive flow.
+  //! \param source The path source
+  //! \param sinks The possible path sinks
+  //! \param flow The network flow.
+  //! \param parent A map in which the predecessor of each node is stored.
+  //! \param TheLoop An optional loop out of which a path may not extend.
+  //! \return The sink of the path
+  const Node* findPath(const Node& source,
+                       const NodeList& sinks,
+                       const EdgeSet& flow,
+                       PredecessorMap& parent,
+                       const Loop* TheLoop) const;
+
+  //! Takes a path description and adjusts the flow for every edge in it.
+  //! \param start The start of the path.
+  //! \param end The end of the path.
+  //! \param parent A map containing a predecessor for each node n in the path. (n != start)
+  //! \param flow The network flow.
+  void injectFlow(const Node& start,
+                  const Node& end,
+                  const PredecessorMap& parent,
+                  EdgeSet& flow) const;
+
+  const Node* getInNode(const BasicBlock& BB) const;
+  const Node* getOutNode(const BasicBlock& BB) const;
+};
+
+
+
+
 
 /// BranchDependenceAnalysis
 ///
@@ -46,35 +117,28 @@ using Edge = LoopBase<BasicBlock, Loop>::Edge;
 //  C: x = phi [x0, x1]
 ///
 /// The analysis result maps every branch to a set of basic blocks whose phi nodes will become varying if the branch is varying.
-/// This is directly used by the VectorizationAnalysis to propagate control-induced value divergence.
+/// This is directly used by the DivergenceAnalysis to propagate control-induced value divergence.
 ///
 class BranchDependenceAnalysis {
   static ConstBlockSet emptySet;
-  DivPathDecider DPD;
+  mutable DivPathDecider DPD;
 
-  // iterated post dominance frontier
-  DenseMap<const BasicBlock*, ConstBlockSet> pdClosureMap;
-  DenseMap<const BasicBlock*, ConstBlockSet> domClosureMap;
-
-  DenseMap<const TerminatorInst*, ConstBlockSet> effectedBlocks_old;
-  mutable DenseMap<const TerminatorInst*, ConstBlockSet> effectedBlocks_new;
-  CDG cdg;
-  DFG dfg;
+  Function & F;
+  const DominatorTree & domTree;
+  const PostDominatorTree & postDomTree;
   const LoopInfo & loopInfo;
 
-  void computePostDomClosure(const BasicBlock & x, ConstBlockSet & closure);
-  void computeDomClosure(const BasicBlock & b, ConstBlockSet & closure);
-
+  mutable DenseMap<const TerminatorInst*, ConstBlockSet> joinBlocks;
 public:
   BranchDependenceAnalysis(Function & F,
-                           const PostDominatorTree & postDomTree,
                            const DominatorTree & domTree,
+                           const PostDominatorTree & postDomTree,
                            const LoopInfo & loopInfo);
 
-  /// \brief returns the set of blocks whose PHI nodes become divergent if @branch is divergent
+  // returns the set of blocks whose PHI nodes become divergent if @term is a divergent branch
   const ConstBlockSet & join_blocks(const TerminatorInst & term) const;
 };
 
 } // namespace llvm
 
-#endif // _LLVM_BRANCHDEPENDENCEANALYSIS_H_
+#endif // LLVM_IR_BRANCHDEPENDENCEANALYSIS_H
