@@ -185,7 +185,7 @@ BranchDependenceAnalysis::BranchDependenceAnalysis(
       loopInfo(_loopInfo), joinBlocks() {}
 
 template <typename TreeT>
-static auto GetNode(const TreeT &tree, const BasicBlock &block) {
+static DomTreeNodeBase<BasicBlock>* GetNode(const TreeT &tree, const BasicBlock &block) {
   return tree.getNode(const_cast<BasicBlock *>(&block));
 }
 
