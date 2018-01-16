@@ -31,6 +31,7 @@ class raw_ostream;
 class DivergenceAnalysis {
   const Loop &loop;
   BranchDependenceAnalysis &BDA;
+  DenseSet<const Value *> uniformOverrides;
   DenseSet<const Value *> divergentValues;
   std::vector<const Instruction *> worklist;
 
@@ -42,6 +43,7 @@ class DivergenceAnalysis {
 public:
   DivergenceAnalysis(const Loop &loop, BranchDependenceAnalysis &BDA);
 
+  void addUniformOverride(const Value& uniVal);
   void markDivergent(const Value &divVal);
   void compute();
 

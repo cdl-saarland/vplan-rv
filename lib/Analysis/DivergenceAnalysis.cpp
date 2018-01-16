@@ -89,6 +89,10 @@ void DivergenceAnalysis::markDivergent(const Value &divVal) {
   divergentValues.insert(&divVal);
 }
 
+void DivergenceAnalysis::addUniformOverride(const Value& uniVal) {
+  uniformOverrides.insert(&uniVal);
+}
+
 bool DivergenceAnalysis::updateTerminator(const TerminatorInst &term) const {
   if (term.getNumSuccessors() <= 1)
     return false;
@@ -140,12 +144,16 @@ void DivergenceAnalysis::compute() {
   while (!worklist.empty()) {
     const Instruction &I = *worklist.back();
     worklist.pop_back();
+
+    // maintain uniformity of overrides
+    if (uniformOverrides.count(&I)) continue;
+
     bool wasDivergent = isDivergent(I);
     if (wasDivergent)
       continue;
 
     if (isa<TerminatorInst>(I)) {
-      // spread to phi nodes
+      // spread control divergence to phi nodes
       auto &term = cast<TerminatorInst>(I);
       if (updateTerminator(term)) {
         markDivergent(term);
@@ -215,6 +223,12 @@ LoopDivergenceAnalysis::LoopDivergenceAnalysis(BranchDependenceAnalysis &BDA,
       break;
     DA.markDivergent(I);
   }
+
+  // after the scalar remainder loop is extracted, the loop exit condition will be uniform
+  auto loopExitingInst = loop.getExitingBlock()->getTerminator();
+  auto loopExitCond = cast<BranchInst>(loopExitingInst)->getCondition();
+  DA.addUniformOverride(*loopExitCond);
+
   DA.compute();
 }
 

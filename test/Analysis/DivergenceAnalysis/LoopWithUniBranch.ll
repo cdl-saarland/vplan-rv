@@ -5,8 +5,6 @@
 ; CHECK-NEXT: DIVERGENT:  %arrayidx = getelementptr inbounds float, float* %ptr, i64 %indvars.iv
 ; CHECK-NEXT: DIVERGENT:  store float %divphi, float* %arrayidx, align 4
 ; CHECK-NEXT: DIVERGENT:  %indvars.iv.next = add nuw nsw i64 %indvars.iv, 1
-; CHECK-NEXT: DIVERGENT:  %exitcond = icmp eq i64 %indvars.iv.next, %n
-; CHECK-NEXT: DIVERGENT:  br i1 %exitcond, label %for.cond.cleanup, label %for.body
 ; CHECK-NEXT: }
 define void @test1(float* nocapture %ptr, i64 %n) #0 {
   entry:
