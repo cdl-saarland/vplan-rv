@@ -13,8 +13,6 @@
 ; CHECK-NEXT: DIVERGENT:  %exitcond2 = icmp sge i64 %indvars.iv.next2, %indvars.iv
 ; CHECK-NEXT: DIVERGENT:  br i1 %exitcond2, label %for.latch, label %for.body2
 ; CHECK-NEXT: DIVERGENT:  %indvars.iv.next = add nuw nsw i64 %indvars.iv, 1
-; CHECK-NEXT: DIVERGENT:  %exitcond = icmp eq i64 %indvars.iv.next, %n
-; CHECK-NEXT: DIVERGENT:  br i1 %exitcond, label %exit, label %for.body
 ; CHECK-NEXT: }
 ; CHECK: Divergence of loop for.body2 {
 ; CHECK-NEXT: DIVERGENT:  %indvars.iv2 = phi i64 [ 0, %for.body ], [ %indvars.iv.next2, %for.body2 ]
@@ -24,8 +22,6 @@
 ; CHECK-NEXT: DIVERGENT:  %arrayidx = getelementptr inbounds float, float* %ptr, i64 %idx
 ; CHECK-NEXT: DIVERGENT:  store float %val, float* %arrayidx, align 4
 ; CHECK-NEXT: DIVERGENT:  %indvars.iv.next2 = add nuw nsw i64 %indvars.iv2, 1
-; CHECK-NEXT: DIVERGENT:  %exitcond2 = icmp sge i64 %indvars.iv.next2, %indvars.iv
-; CHECK-NEXT: DIVERGENT:  br i1 %exitcond2, label %for.latch, label %for.body2
 ; CHECK-NEXT: }
 define void @test1(float* nocapture %ptr, i64 %n) #0 {
   entry:
