@@ -57,6 +57,7 @@ namespace llvm {
 
 class AssumptionCache;
 class BlockFrequencyInfo;
+class BranchDependenceAnalysis;
 class DemandedBits;
 class DominatorTree;
 class Function;
@@ -64,6 +65,7 @@ class Loop;
 class LoopAccessInfo;
 class LoopInfo;
 class OptimizationRemarkEmitter;
+class PostDominatorTree;
 class ScalarEvolution;
 class TargetLibraryInfo;
 class TargetTransformInfo;
@@ -81,6 +83,7 @@ struct LoopVectorizePass : public PassInfoMixin<LoopVectorizePass> {
   LoopInfo *LI;
   TargetTransformInfo *TTI;
   DominatorTree *DT;
+  PostDominatorTree *PDT;
   BlockFrequencyInfo *BFI;
   TargetLibraryInfo *TLI;
   DemandedBits *DB;
@@ -94,12 +97,13 @@ struct LoopVectorizePass : public PassInfoMixin<LoopVectorizePass> {
   // Shim for old PM.
   bool runImpl(Function &F, ScalarEvolution &SE_, LoopInfo &LI_,
                TargetTransformInfo &TTI_, DominatorTree &DT_,
+               PostDominatorTree &PDT_,
                BlockFrequencyInfo &BFI_, TargetLibraryInfo *TLI_,
                DemandedBits &DB_, AliasAnalysis &AA_, AssumptionCache &AC_,
                std::function<const LoopAccessInfo &(Loop &)> &GetLAA_,
                OptimizationRemarkEmitter &ORE);
 
-  bool processLoop(Loop *L);
+  bool processLoop(Loop *L, BranchDependenceAnalysis & BDA);
 };
 
 } // end namespace llvm

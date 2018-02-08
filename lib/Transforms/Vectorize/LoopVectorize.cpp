@@ -74,9 +74,11 @@
 #include "llvm/Analysis/GlobalsModRef.h"
 #include "llvm/Analysis/LoopAccessAnalysis.h"
 #include "llvm/Analysis/LoopAnalysisManager.h"
+#include "llvm/Analysis/DivergenceAnalysis.h"
 #include "llvm/Analysis/LoopInfo.h"
 #include "llvm/Analysis/LoopIterator.h"
 #include "llvm/Analysis/OptimizationRemarkEmitter.h"
+#include "llvm/Analysis/PostDominators.h"
 #include "llvm/Analysis/ScalarEvolution.h"
 #include "llvm/Analysis/ScalarEvolutionExpander.h"
 #include "llvm/Analysis/ScalarEvolutionExpressions.h"
@@ -562,13 +564,13 @@ protected:
   /// Returns true if we should generate a scalar version of \p IV.
   bool needsScalarInduction(Instruction *IV) const;
 
-  /// If there is a cast involved in the induction variable \p ID, which should 
-  /// be ignored in the vectorized loop body, this function records the 
-  /// VectorLoopValue of the respective Phi also as the VectorLoopValue of the 
-  /// cast. We had already proved that the casted Phi is equal to the uncasted 
-  /// Phi in the vectorized loop (under a runtime guard), and therefore 
-  /// there is no need to vectorize the cast - the same value can be used in the 
-  /// vector loop for both the Phi and the cast. 
+  /// If there is a cast involved in the induction variable \p ID, which should
+  /// be ignored in the vectorized loop body, this function records the
+  /// VectorLoopValue of the respective Phi also as the VectorLoopValue of the
+  /// cast. We had already proved that the casted Phi is equal to the uncasted
+  /// Phi in the vectorized loop (under a runtime guard), and therefore
+  /// there is no need to vectorize the cast - the same value can be used in the
+  /// vector loop for both the Phi and the cast.
   /// If \p VectorLoopValue is a scalarized value, \p Lane is also specified,
   /// Otherwise, \p VectorLoopValue is a widened/vectorized value.
   ///
@@ -1514,12 +1516,12 @@ namespace llvm {
 class LoopVectorizationLegality {
 public:
   LoopVectorizationLegality(
-      Loop *L, PredicatedScalarEvolution &PSE, DominatorTree *DT,
+      Loop *L, PredicatedScalarEvolution &PSE, DominatorTree *DT, BranchDependenceAnalysis &BDA,
       TargetLibraryInfo *TLI, AliasAnalysis *AA, Function *F,
       std::function<const LoopAccessInfo &(Loop &)> *GetLAA, LoopInfo *LI,
       OptimizationRemarkEmitter *ORE, LoopVectorizationRequirements *R,
       LoopVectorizeHints *H, DemandedBits *DB, AssumptionCache *AC)
-      : TheLoop(L), PSE(PSE), TLI(TLI), DT(DT), GetLAA(GetLAA),
+      : TheLoop(L), PSE(PSE), TLI(TLI), DT(DT), BDA(BDA), GetLAA(GetLAA),
         ORE(ORE), Requirements(R), Hints(H), DB(DB), AC(AC) {}
 
   /// ReductionList contains the reduction descriptors for all
@@ -1565,7 +1567,7 @@ public:
   /// words, the cast has the same SCEV expression as the induction phi).
   bool isCastedInductionVariable(const Value *V);
 
-  /// Returns True if V can be considered as an induction variable in this 
+  /// Returns True if V can be considered as an induction variable in this
   /// loop. V can be the induction phi, or some redundant cast in the def-use
   /// chain of the inducion phi.
   bool isInductionVariable(const Value *V);
@@ -1685,6 +1687,12 @@ private:
   /// Dominator Tree.
   DominatorTree *DT;
 
+  // LoopDivergence analysis.
+  // identifies uniform instructions.
+  std::unique_ptr<LoopDivergenceAnalysis> LDA;
+
+  BranchDependenceAnalysis & BDA;
+
   // LoopAccess analysis.
   std::function<const LoopAccessInfo &(Loop &)> *GetLAA;
 
@@ -1709,9 +1717,9 @@ private:
   /// variables can be pointers.
   InductionList Inductions;
 
-  /// Holds all the casts that participate in the update chain of the induction 
-  /// variables, and that have been proven to be redundant (possibly under a 
-  /// runtime guard). These casts can be ignored when creating the vectorized 
+  /// Holds all the casts that participate in the update chain of the induction
+  /// variables, and that have been proven to be redundant (possibly under a
+  /// runtime guard). These casts can be ignored when creating the vectorized
   /// loop body.
   SmallPtrSet<Instruction *, 4> InductionCastsToIgnore;
 
@@ -2318,13 +2326,14 @@ struct LoopVectorize : public FunctionPass {
     auto *AA = &getAnalysis<AAResultsWrapperPass>().getAAResults();
     auto *AC = &getAnalysis<AssumptionCacheTracker>().getAssumptionCache(F);
     auto *LAA = &getAnalysis<LoopAccessLegacyAnalysis>();
+    auto *PDT = &getAnalysis<PostDominatorTreeWrapperPass>().getPostDomTree();
     auto *DB = &getAnalysis<DemandedBitsWrapperPass>().getDemandedBits();
     auto *ORE = &getAnalysis<OptimizationRemarkEmitterWrapperPass>().getORE();
 
     std::function<const LoopAccessInfo &(Loop &)> GetLAA =
         [&](Loop &L) -> const LoopAccessInfo & { return LAA->getInfo(&L); };
 
-    return Impl.runImpl(F, *SE, *LI, *TTI, *DT, *BFI, TLI, *DB, *AA, *AC,
+    return Impl.runImpl(F, *SE, *LI, *TTI, *DT, *PDT, *BFI, TLI, *DB, *AA, *AC,
                         GetLAA, *ORE);
   }
 
@@ -2332,6 +2341,7 @@ struct LoopVectorize : public FunctionPass {
     AU.addRequired<AssumptionCacheTracker>();
     AU.addRequired<BlockFrequencyInfoWrapperPass>();
     AU.addRequired<DominatorTreeWrapperPass>();
+    AU.addRequired<PostDominatorTreeWrapperPass>();
     AU.addRequired<LoopInfoWrapperPass>();
     AU.addRequired<ScalarEvolutionWrapperPass>();
     AU.addRequired<TargetTransformInfoWrapperPass>();
@@ -2340,7 +2350,6 @@ struct LoopVectorize : public FunctionPass {
     AU.addRequired<DemandedBitsWrapperPass>();
     AU.addRequired<OptimizationRemarkEmitterWrapperPass>();
     AU.addPreserved<LoopInfoWrapperPass>();
-    AU.addPreserved<DominatorTreeWrapperPass>();
     AU.addPreserved<BasicAAWrapperPass>();
     AU.addPreserved<GlobalsAAWrapperPass>();
   }
@@ -2693,7 +2702,7 @@ int LoopVectorizationLegality::isConsecutivePtr(Value *Ptr) {
 }
 
 bool LoopVectorizationLegality::isUniform(Value *V) {
-  return LAI->isUniform(V);
+  return LDA->isUniform(*V) || LAI->isUniform(V);
 }
 
 Value *InnerLoopVectorizer::getOrCreateVectorValue(Value *V, unsigned Part) {
@@ -4927,6 +4936,9 @@ bool LoopVectorizationLegality::canVectorize() {
       return false;
   }
 
+  // run the divergence analysis to identify uniform instructions
+  LDA.reset(new LoopDivergenceAnalysis(BDA, *TheLoop));
+
   DEBUG(dbgs() << "LV: We can vectorize this loop"
                << (LAI->getRuntimePointerChecking()->Need
                        ? " (with a runtime bound check)"
@@ -6567,7 +6579,7 @@ bool LoopVectorizationCostModel::useEmulatedMaskMemRefHack(Instruction *I){
   // high enough value to practically disable vectorization with such
   // operations, except where previously deployed legality hack allowed
   // using very low cost values. This is to avoid regressions coming simply
-  // from moving "masked load/store" check from legality to cost model. 
+  // from moving "masked load/store" check from legality to cost model.
   // Masked Load/Gather emulation was previously never allowed.
   // Limited number of Masked Store/Scatter emulation was allowed.
   assert(isScalarWithPredication(I) &&
@@ -7501,12 +7513,12 @@ void LoopVectorizationPlanner::collectTriviallyDeadInstructions(
         }))
       DeadInstructions.insert(IndUpdate);
 
-    // We record as "Dead" also the type-casting instructions we had identified 
+    // We record as "Dead" also the type-casting instructions we had identified
     // during induction analysis. We don't need any handling for them in the
-    // vectorized loop because we have proven that, under a proper runtime 
-    // test guarding the vectorized loop, the value of the phi, and the casted 
+    // vectorized loop because we have proven that, under a proper runtime
+    // test guarding the vectorized loop, the value of the phi, and the casted
     // value of the phi, are the same. The last instruction in this casting chain
-    // will get its scalar/vector/widened def from the scalar/vector/widened def 
+    // will get its scalar/vector/widened def from the scalar/vector/widened def
     // of the respective phi node. Any other casts in the induction def-use chain
     // have no other uses outside the phi update chain, and will be ignored.
     InductionDescriptor &IndDes = Induction.second;
@@ -8291,7 +8303,7 @@ void VPWidenMemoryInstructionRecipe::execute(VPTransformState &State) {
   State.ILV->vectorizeMemoryInstruction(&Instr, &MaskValues);
 }
 
-bool LoopVectorizePass::processLoop(Loop *L) {
+bool LoopVectorizePass::processLoop(Loop *L, BranchDependenceAnalysis & BDA) {
   assert(L->empty() && "Only process inner loops.");
 
 #ifndef NDEBUG
@@ -8334,7 +8346,7 @@ bool LoopVectorizePass::processLoop(Loop *L) {
 
   // Check if it is legal to vectorize the loop.
   LoopVectorizationRequirements Requirements(*ORE);
-  LoopVectorizationLegality LVL(L, PSE, DT, TLI, AA, F, GetLAA, LI, ORE,
+  LoopVectorizationLegality LVL(L, PSE, DT, BDA, TLI, AA, F, GetLAA, LI, ORE,
                                 &Requirements, &Hints, DB, AC);
   if (!LVL.canVectorize()) {
     DEBUG(dbgs() << "LV: Not vectorizing: Cannot prove legality.\n");
@@ -8581,7 +8593,7 @@ bool LoopVectorizePass::processLoop(Loop *L) {
 
 bool LoopVectorizePass::runImpl(
     Function &F, ScalarEvolution &SE_, LoopInfo &LI_, TargetTransformInfo &TTI_,
-    DominatorTree &DT_, BlockFrequencyInfo &BFI_, TargetLibraryInfo *TLI_,
+    DominatorTree &DT_, PostDominatorTree &PDT_, BlockFrequencyInfo &BFI_, TargetLibraryInfo *TLI_,
     DemandedBits &DB_, AliasAnalysis &AA_, AssumptionCache &AC_,
     std::function<const LoopAccessInfo &(Loop &)> &GetLAA_,
     OptimizationRemarkEmitter &ORE_) {
@@ -8589,6 +8601,7 @@ bool LoopVectorizePass::runImpl(
   LI = &LI_;
   TTI = &TTI_;
   DT = &DT_;
+  PDT = &PDT_;
   BFI = &BFI_;
   TLI = TLI_;
   AA = &AA_;
@@ -8627,6 +8640,9 @@ bool LoopVectorizePass::runImpl(
 
   LoopsAnalyzed += Worklist.size();
 
+  // maps branches to phi nodes that become divergent if the branches are divergent
+  BranchDependenceAnalysis BDA(F, *DT, *PDT, *LI);
+
   // Now walk the identified inner loops.
   while (!Worklist.empty()) {
     Loop *L = Worklist.pop_back_val();
@@ -8635,7 +8651,7 @@ bool LoopVectorizePass::runImpl(
     // transform.
     Changed |= formLCSSARecursively(*L, *DT, LI, SE);
 
-    Changed |= processLoop(L);
+    Changed |= processLoop(L, BDA);
   }
 
   // Process each loop nest in the function.
@@ -8648,6 +8664,7 @@ PreservedAnalyses LoopVectorizePass::run(Function &F,
     auto &LI = AM.getResult<LoopAnalysis>(F);
     auto &TTI = AM.getResult<TargetIRAnalysis>(F);
     auto &DT = AM.getResult<DominatorTreeAnalysis>(F);
+    auto &PDT = AM.getResult<PostDominatorTreeAnalysis>(F);
     auto &BFI = AM.getResult<BlockFrequencyAnalysis>(F);
     auto &TLI = AM.getResult<TargetLibraryAnalysis>(F);
     auto &AA = AM.getResult<AAManager>(F);
@@ -8662,7 +8679,7 @@ PreservedAnalyses LoopVectorizePass::run(Function &F,
       return LAM.getResult<LoopAccessAnalysis>(L, AR);
     };
     bool Changed =
-        runImpl(F, SE, LI, TTI, DT, BFI, &TLI, DB, AA, AC, GetLAA, ORE);
+        runImpl(F, SE, LI, TTI, DT, PDT, BFI, &TLI, DB, AA, AC, GetLAA, ORE);
     if (!Changed)
       return PreservedAnalyses::all();
     PreservedAnalyses PA;
