@@ -168,6 +168,11 @@ static cl::opt<bool> EnableInterleavedMemAccesses(
     cl::desc("Enable vectorization on interleaved memory accesses in a loop"));
 
 /// Maximum factor for an interleaved memory access.
+static cl::opt<bool> EnableDA(
+    "vectorizer-use-da", cl::init(true), cl::Hidden,
+    cl::desc("Use the LoopDivergenceAnalysis to detect more uniform values."));
+
+/// Maximum factor for an interleaved memory access.
 static cl::opt<unsigned> MaxInterleaveGroupFactor(
     "max-interleave-group-factor", cl::Hidden,
     cl::desc("Maximum factor for an interleaved access group (default = 8)"),
@@ -2702,7 +2707,7 @@ int LoopVectorizationLegality::isConsecutivePtr(Value *Ptr) {
 }
 
 bool LoopVectorizationLegality::isUniform(Value *V) {
-  return LDA->isUniform(*V) || LAI->isUniform(V);
+  return (LDA && LDA->isUniform(*V)) || LAI->isUniform(V);
 }
 
 Value *InnerLoopVectorizer::getOrCreateVectorValue(Value *V, unsigned Part) {
@@ -4937,7 +4942,7 @@ bool LoopVectorizationLegality::canVectorize() {
   }
 
   // run the divergence analysis to identify uniform instructions
-  LDA.reset(new LoopDivergenceAnalysis(BDA, *TheLoop));
+  if (EnableDA) LDA.reset(new LoopDivergenceAnalysis(BDA, *TheLoop));
 
   DEBUG(dbgs() << "LV: We can vectorize this loop"
                << (LAI->getRuntimePointerChecking()->Need
