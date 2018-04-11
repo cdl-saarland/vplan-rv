@@ -951,7 +951,7 @@ SelectionDAG::SelectionDAG(const TargetMachine &tm, CodeGenOpt::Level OL)
 void SelectionDAG::init(MachineFunction &NewMF,
                         OptimizationRemarkEmitter &NewORE,
                         Pass *PassPtr, const TargetLibraryInfo *LibraryInfo,
-                        DivergenceAnalysis * Divergence) {
+                        KernelDivergenceAnalysis * Divergence) {
   MF = &NewMF;
   SDAGISelPass = PassPtr;
   ORE = &NewORE;

@@ -28,7 +28,7 @@
 #include "llvm/ADT/iterator.h"
 #include "llvm/ADT/iterator_range.h"
 #include "llvm/Analysis/AliasAnalysis.h"
-#include "llvm/Analysis/DivergenceAnalysis.h"
+#include "llvm/Analysis/KernelDivergenceAnalysis.h"
 #include "llvm/CodeGen/DAGCombine.h"
 #include "llvm/CodeGen/FunctionLoweringInfo.h"
 #include "llvm/CodeGen/ISDOpcodes.h"
@@ -219,7 +219,7 @@ class SelectionDAG {
   LLVMContext *Context;
   CodeGenOpt::Level OptLevel;
 
-  DivergenceAnalysis * DA = nullptr;
+  KernelDivergenceAnalysis * DA = nullptr;
   FunctionLoweringInfo * FLI = nullptr;
 
   /// The function-level optimization remark emitter.  Used to emit remarks
@@ -372,7 +372,7 @@ public:
   /// Prepare this SelectionDAG to process code in the given MachineFunction.
   void init(MachineFunction &NewMF, OptimizationRemarkEmitter &NewORE,
             Pass *PassPtr, const TargetLibraryInfo *LibraryInfo,
-            DivergenceAnalysis * DA);
+            KernelDivergenceAnalysis * DA);
 
   void setFunctionLoweringInfo(FunctionLoweringInfo * FuncInfo) {
     FLI = FuncInfo;

@@ -781,7 +781,7 @@ bool AMDGPUTargetLowering::isSDNodeAlwaysUniform(const SDNode * N) const {
 }
 
 bool AMDGPUTargetLowering::isSDNodeSourceOfDivergence(const SDNode * N,
-  FunctionLoweringInfo * FLI, DivergenceAnalysis * DA) const
+  FunctionLoweringInfo * FLI, KernelDivergenceAnalysis * DA) const
 {
   switch (N->getOpcode()) {
     case ISD::Register:
