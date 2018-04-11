@@ -81,9 +81,10 @@
 using namespace llvm;
 
 // class DivergenceAnalysis
-DivergenceAnalysis::DivergenceAnalysis(const Loop &_loop,
-                                       BranchDependenceAnalysis &_BDA)
-    : loop(_loop), BDA(_BDA), divergentValues() {}
+DivergenceAnalysis::DivergenceAnalysis(const Function & F,
+                                       const Loop *regionLoop,
+                                       BranchDependenceAnalysis & BDA)
+    : F(F), regionLoop(regionLoop), BDA(BDA), divergentValues() {}
 
 void DivergenceAnalysis::markDivergent(const Value &divVal) {
   divergentValues.insert(&divVal);
@@ -127,6 +128,11 @@ bool DivergenceAnalysis::updatePHINode(const PHINode &phi) const {
       return true;
   }
   return false;
+}
+
+bool
+DivergenceAnalysis::inRegion(const Instruction & I) const {
+  return !regionLoop || regionLoop->contains(I.getParent());
 }
 
 void DivergenceAnalysis::compute() {
@@ -186,7 +192,7 @@ void DivergenceAnalysis::compute() {
           continue;
 
         // only compute divergent inside loop
-        if (!loop.contains(userInst->getParent()))
+        if (!inRegion(*userInst))
           continue;
         worklist.push_back(userInst);
       }
@@ -203,21 +209,47 @@ bool DivergenceAnalysis::isDivergent(const Value &val) const {
 void DivergenceAnalysis::print(raw_ostream &OS, const Module *) const {
   if (divergentValues.empty())
     return;
-  const Function *F = loop.getHeader()->getParent();
-
-  OS << "Divergence of loop " << loop.getName() << " {\n";
   // Iterate instructions using instructions() to ensure a deterministic order.
   for (auto &I : instructions(F)) {
     if (divergentValues.count(&I))
       OS << "DIVERGENT:" << I << "\n";
   }
+}
+
+// class GPUDivergenceAnalysis
+GPUDivergenceAnalysis::GPUDivergenceAnalysis(Function & F, const DominatorTree & DT, const PostDominatorTree & PDT, const LoopInfo & loopInfo, const TargetTransformInfo & TTI)
+    : BDA(F, DT, PDT, loopInfo)
+    , DA(F, nullptr, BDA) {
+  for (auto &I : instructions(F)) {
+    if (TTI.isSourceOfDivergence(&I)) {
+      DA.markDivergent(I);
+    }
+  }
+  for (auto &Arg : F.args()) {
+    if (TTI.isSourceOfDivergence(&Arg)) {
+      DA.markDivergent(Arg);
+    }
+  }
+
+  DA.compute();
+}
+
+bool GPUDivergenceAnalysis::isDivergent(const Value &val) const {
+  return DA.isDivergent(val);
+}
+
+void GPUDivergenceAnalysis::print(raw_ostream &OS, const Module *mod) const {
+  OS << "Divergence of kernel " << DA.getFunction().getName() << " {\n";
+  DA.print(OS, mod);
   OS << "}\n";
 }
+
+
 
 // class LoopDivergenceAnalysis
 LoopDivergenceAnalysis::LoopDivergenceAnalysis(BranchDependenceAnalysis &BDA,
                                                const Loop &loop)
-    : DA(loop, BDA) {
+    : DA(*loop.getHeader()->getParent(), &loop, BDA) {
   for (const auto &I : *loop.getHeader()) {
     if (!isa<PHINode>(I))
       break;
@@ -237,7 +269,9 @@ bool LoopDivergenceAnalysis::isDivergent(const Value &val) const {
 }
 
 void LoopDivergenceAnalysis::print(raw_ostream &OS, const Module *mod) const {
+  OS << "Divergence of loop " << DA.getRegionLoop()->getName() << " {\n";
   DA.print(OS, mod);
+  OS << "}\n";
 }
 
 // class LoopDivergencePrinter
