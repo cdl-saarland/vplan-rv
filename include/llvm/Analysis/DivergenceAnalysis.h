@@ -27,9 +27,15 @@ class Value;
 class Instruction;
 class Loop;
 class raw_ostream;
+class TargetTransformInfo;
+
 // generic divergence analysis
 class DivergenceAnalysis {
-  const Loop &loop;
+  const Function & F;
+  // if regionLoop != nullptr, analyze only in the scope of the loop
+  // Otw, analyze the whole function
+  const Loop * regionLoop;
+
   BranchDependenceAnalysis &BDA;
   DenseSet<const Value *> uniformOverrides;
   DenseSet<const Value *> divergentValues;
@@ -41,13 +47,39 @@ class DivergenceAnalysis {
   bool updateNormalInstruction(const Instruction &term) const;
 
 public:
-  DivergenceAnalysis(const Loop &loop, BranchDependenceAnalysis &BDA);
+  const Loop* getRegionLoop() const { return regionLoop; }
+  const Function& getFunction() const { return F; }
 
+  DivergenceAnalysis(const Function & F, const Loop * regionLoop, BranchDependenceAnalysis &BDA);
+  bool inRegion(const Instruction & I) const;
   void addUniformOverride(const Value& uniVal);
   void markDivergent(const Value &divVal);
   void compute();
 
   bool isDivergent(const Value &val) const;
+  void print(raw_ostream &OS, const Module *) const;
+};
+
+// divergence analysis frontend for GPU kernels
+class GPUDivergenceAnalysis {
+  BranchDependenceAnalysis BDA;
+  DivergenceAnalysis DA;
+
+public:
+  GPUDivergenceAnalysis(
+      Function & F,
+      const DominatorTree & DT,
+      const PostDominatorTree & PDT,
+      const LoopInfo & LI,
+      const TargetTransformInfo & TTI);
+
+  // Returns true if V is divergent.
+  bool isDivergent(const Value &val) const;
+
+  // Returns true if V is uniform/non-divergent.
+  bool isUniform(const Value &val) const { return !isDivergent(val); }
+
+  // Print all divergent values in the loop.
   void print(raw_ostream &OS, const Module *) const;
 };
 
