@@ -29,7 +29,7 @@
 #include "llvm/ADT/APInt.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringRef.h"
-#include "llvm/Analysis/DivergenceAnalysis.h"
+#include "llvm/Analysis/KernelDivergenceAnalysis.h"
 #include "llvm/Analysis/ValueTracking.h"
 #include "llvm/CodeGen/FunctionLoweringInfo.h"
 #include "llvm/CodeGen/ISDOpcodes.h"
@@ -87,7 +87,7 @@ public:
   void getAnalysisUsage(AnalysisUsage &AU) const override {
     AU.addRequired<AMDGPUArgumentUsageInfo>();
     AU.addRequired<AMDGPUPerfHintAnalysis>();
-    AU.addRequired<DivergenceAnalysis>();
+    AU.addRequired<KernelDivergenceAnalysis>();
     SelectionDAGISel::getAnalysisUsage(AU);
   }
 

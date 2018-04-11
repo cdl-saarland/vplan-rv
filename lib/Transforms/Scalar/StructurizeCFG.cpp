@@ -183,7 +183,7 @@ class StructurizeCFG : public RegionPass {
   Function *Func;
   Region *ParentRegion;
 
-  DivergenceAnalysis *DA;
+  KernelDivergenceAnalysis *DA;
   DominatorTree *DT;
   LoopInfo *LI;
 
