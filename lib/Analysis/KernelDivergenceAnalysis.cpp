@@ -64,6 +64,7 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "llvm/Analysis/DivergenceAnalysis.h"
 #include "llvm/Analysis/KernelDivergenceAnalysis.h"
 #include "llvm/Analysis/Passes.h"
 #include "llvm/Analysis/PostDominators.h"
@@ -78,6 +79,12 @@
 using namespace llvm;
 
 #define DEBUG_TYPE "divergence"
+
+// Use the VPlan+RV DivergenceAnalysis
+static cl::opt<bool> UseRVDA(
+    "use-rv-da", cl::init(false), cl::Hidden,
+    cl::desc(
+        "Use the VPlan+RV DivergenceAnalysis to detect divergent values."));
 
 namespace {
 
@@ -270,6 +277,7 @@ INITIALIZE_PASS_BEGIN(KernelDivergenceAnalysis, "divergence", "Kernel Divergence
                       false, true)
 INITIALIZE_PASS_DEPENDENCY(DominatorTreeWrapperPass)
 INITIALIZE_PASS_DEPENDENCY(PostDominatorTreeWrapperPass)
+INITIALIZE_PASS_DEPENDENCY(LoopInfoWrapperPass)
 INITIALIZE_PASS_END(KernelDivergenceAnalysis, "divergence", "Kernel Divergence Analysis",
                     false, true)
 
@@ -280,6 +288,7 @@ FunctionPass *llvm::createKernelDivergenceAnalysisPass() {
 void KernelDivergenceAnalysis::getAnalysisUsage(AnalysisUsage &AU) const {
   AU.addRequired<DominatorTreeWrapperPass>();
   AU.addRequired<PostDominatorTreeWrapperPass>();
+  AU.addRequired<LoopInfoWrapperPass>();
   AU.setPreservesAll();
 }
 
@@ -295,16 +304,41 @@ bool KernelDivergenceAnalysis::runOnFunction(Function &F) {
     return false;
 
   DivergentValues.clear();
+
+  auto &DT = getAnalysis<DominatorTreeWrapperPass>().getDomTree();
   auto &PDT = getAnalysis<PostDominatorTreeWrapperPass>().getPostDomTree();
-  DivergencePropagator DP(F, TTI,
-                          getAnalysis<DominatorTreeWrapperPass>().getDomTree(),
-                          PDT, DivergentValues);
-  DP.populateWithSourcesOfDivergence();
-  DP.propagate();
+
+  if (UseRVDA) {
+    // run the VPlan+RV divergence analysis
+    auto &LI = getAnalysis<LoopInfoWrapperPass>().getLoopInfo();
+    GPUDivergenceAnalysis gpuDA(F, DT, PDT, LI, TTI);
+
+    // TODO keep gpuDa around and query it directly in KernelDivergenceAnalysis::isDivergent()
+    for (auto & I : instructions(F)) {
+      if (gpuDA.isDivergent(I)) {
+        DivergentValues.insert(&I);
+      }
+    }
+    for (auto & Arg : F.args()) {
+      if (gpuDA.isDivergent(Arg)) {
+        DivergentValues.insert(&Arg);
+      }
+    }
+
+  } else {
+    // run LLVM's existing DivergenceAnalysis
+    DivergencePropagator DP(F, TTI,
+                            DT,
+                            PDT, DivergentValues);
+    DP.populateWithSourcesOfDivergence();
+    DP.propagate();
+  }
+
   LLVM_DEBUG(
     dbgs() << "\nAfter divergence analysis on " << F.getName() << ":\n";
     print(dbgs(), F.getParent())
   );
+
   return false;
 }
 
