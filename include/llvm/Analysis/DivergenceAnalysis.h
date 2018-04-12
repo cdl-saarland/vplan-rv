@@ -38,6 +38,14 @@ class DivergenceAnalysis {
 
   BranchDependenceAnalysis &BDA;
   DenseSet<const Value *> uniformOverrides;
+
+  // blocks with joining divergent control from different predecessors
+  DenseSet<const BasicBlock*> divergentJoinBlocks;
+
+  // blocks with joining divergent control from multiple loop iterations
+  DenseSet<const BasicBlock*> temporalDivergentBlocks;
+
+  // detected/marked divergent values
   DenseSet<const Value *> divergentValues;
   std::vector<const Instruction *> worklist;
 
@@ -55,6 +63,23 @@ class DivergenceAnalysis {
 
   // push all in-region users of @I
   void pushUsers(const Instruction & I);
+
+  void markBlockTemporalDivergent(const BasicBlock & block) {
+    temporalDivergentBlocks.insert(&block);
+  }
+
+  void markBlockJoinDivergent(const BasicBlock & block) {
+    divergentJoinBlocks.insert(&block);
+  }
+
+  bool isTemporalDivergent(const BasicBlock & block) const {
+    return temporalDivergentBlocks.count(&block);
+  }
+
+  bool isJoinDivergent(const BasicBlock & block) const {
+    return divergentJoinBlocks.count(&block);
+  }
+
 public:
   const Loop* getRegionLoop() const { return regionLoop; }
   const Function& getFunction() const { return F; }
