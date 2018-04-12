@@ -135,7 +135,80 @@ DivergenceAnalysis::inRegion(const Instruction & I) const {
   return !regionLoop || regionLoop->contains(I.getParent());
 }
 
-void DivergenceAnalysis::compute() {
+void
+DivergenceAnalysis::markPHIsDivergent(const BasicBlock & joinBlock) {
+   markDivergent(joinBlock); // all PHI nodes in this will become divergent
+   for (auto &blockInst : joinBlock) {
+     if (!isa<PHINode>(blockInst))
+       break;
+     worklist.push_back(&blockInst);
+   }
+}
+
+// marks all users of loop carried values of the loop headed by @loopHeader as divergent
+void
+DivergenceAnalysis::taintLoopLiveOuts(const BasicBlock & loopHeader) {
+  auto * divLoop = BDA.getLoopFor(loopHeader);
+
+  SmallVector<BasicBlock*, 8> taintStack;
+  divLoop->getExitBlocks(taintStack);
+
+  DenseSet<const BasicBlock*> visited;
+  for (auto * block : taintStack) {
+    visited.insert(block);
+  }
+  visited.insert(&loopHeader);
+
+  while (!taintStack.empty()) {
+    auto * userBlock = taintStack.back();
+    taintStack.pop_back();
+
+    assert(!divLoop->contains(userBlock) && "irreducible control flow detected");
+
+    // phi nodes at the fringes of the dominance region
+    if (!BDA.dominates(loopHeader, *userBlock)) {
+      markPHIsDivergent(*userBlock);
+      continue;
+    }
+
+    // taint outside users of values carried by divLoop
+    for (auto & I : *userBlock) {
+      if (isDivergent(I)) continue;
+
+      for (auto & Op : I.operands()) {
+        auto * opInst = dyn_cast<Instruction>(&Op);
+        if (!opInst) continue;
+        if (divLoop->contains(opInst->getParent())) {
+          markDivergent(I); // FIXME this pre-empts re-evaluation
+          pushUsers(I);
+          break;
+        }
+      }
+    }
+
+    // visit all blocks in the dominance region
+    for (auto * succBlock : successors(userBlock)) {
+      if (!visited.insert(userBlock).second) continue;
+      taintStack.push_back(succBlock);
+    }
+  }
+}
+
+void
+DivergenceAnalysis::pushUsers(const Instruction & I) {
+  for (const auto *user : I.users()) {
+    const auto *userInst = dyn_cast<const Instruction>(user);
+    if (!userInst)
+      continue;
+
+    // only compute divergent inside loop
+    if (!inRegion(*userInst))
+      continue;
+    worklist.push_back(userInst);
+  }
+}
+
+void DivergenceAnalysis::compute(bool IsLCSSA) {
   // push all users of seed values to worklist
   for (auto *divVal : divergentValues) {
     for (const auto *user : divVal->users()) {
@@ -163,12 +236,27 @@ void DivergenceAnalysis::compute() {
       auto &term = cast<TerminatorInst>(I);
       if (updateTerminator(term)) {
         markDivergent(term);
+
+        auto * branchLoop = BDA.getLoopFor(*term.getParent());
+
         for (const auto *joinBlock : BDA.join_blocks(term)) {
-          markDivergent(*joinBlock);
-          for (auto &blockInst : *joinBlock) {
-            if (!isa<PHINode>(blockInst))
-              break;
-            worklist.push_back(&blockInst);
+          auto * joinLoop = BDA.getLoopFor(*joinBlock);
+
+          if ((joinLoop == branchLoop) || // same loop level
+              IsLCSSA // it is sufficient to taint LCSSA phi nodes
+          ) {
+            markDivergent(*joinBlock);
+            for (auto &blockInst : *joinBlock) {
+              if (!isa<PHINode>(blockInst))
+                break;
+              worklist.push_back(&blockInst);
+            }
+
+          } else {
+            // users of values carried by (branchLoop) outside the loop become divergent
+            // these users have to be dominated by the header of branchLoop or they are PHI nodes at the fringes of that dominated region
+
+            taintLoopLiveOuts(*branchLoop->getHeader());
           }
         }
         continue;
@@ -186,16 +274,7 @@ void DivergenceAnalysis::compute() {
     // spread divergence to users
     if (divergentUpd) {
       markDivergent(I);
-      for (const auto *user : I.users()) {
-        const auto *userInst = dyn_cast<const Instruction>(user);
-        if (!userInst)
-          continue;
-
-        // only compute divergent inside loop
-        if (!inRegion(*userInst))
-          continue;
-        worklist.push_back(userInst);
-      }
+      pushUsers(I);
     }
   }
 }
@@ -231,7 +310,7 @@ GPUDivergenceAnalysis::GPUDivergenceAnalysis(Function & F, const DominatorTree &
     }
   }
 
-  DA.compute();
+  DA.compute(false); // not in LCSSA form
 }
 
 bool GPUDivergenceAnalysis::isDivergent(const Value &val) const {
@@ -261,7 +340,7 @@ LoopDivergenceAnalysis::LoopDivergenceAnalysis(BranchDependenceAnalysis &BDA,
   auto loopExitCond = cast<BranchInst>(loopExitingInst)->getCondition();
   DA.addUniformOverride(*loopExitCond);
 
-  DA.compute();
+  DA.compute(true); // LCSSA form
 }
 
 bool LoopDivergenceAnalysis::isDivergent(const Value &val) const {

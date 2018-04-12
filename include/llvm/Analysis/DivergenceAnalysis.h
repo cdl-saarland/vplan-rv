@@ -43,9 +43,18 @@ class DivergenceAnalysis {
 
   bool updateTerminator(const TerminatorInst &term) const;
   bool updatePHINode(const PHINode &phi) const;
+
   // non-phi, non-terminator instruction
   bool updateNormalInstruction(const Instruction &term) const;
 
+  // taints all loop live out users
+  void taintLoopLiveOuts(const BasicBlock & loopHeader);
+
+  //mark all phis in @joinBlock as divergent
+  void markPHIsDivergent(const BasicBlock & joinBlock);
+
+  // push all in-region users of @I
+  void pushUsers(const Instruction & I);
 public:
   const Loop* getRegionLoop() const { return regionLoop; }
   const Function& getFunction() const { return F; }
@@ -54,7 +63,7 @@ public:
   bool inRegion(const Instruction & I) const;
   void addUniformOverride(const Value& uniVal);
   void markDivergent(const Value &divVal);
-  void compute();
+  void compute(bool isLCSSA);
 
   bool isDivergent(const Value &val) const;
   void print(raw_ostream &OS, const Module *) const;

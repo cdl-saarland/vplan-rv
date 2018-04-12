@@ -129,6 +129,10 @@ public:
                            const PostDominatorTree &postDomTree,
                            const LoopInfo &loopInfo);
 
+  Loop* getLoopFor(const BasicBlock & block) const;
+
+  bool dominates(const BasicBlock & A, const BasicBlock & B) const;
+
   // returns the set of blocks whose PHI nodes become divergent if @term is a
   // divergent branch
   const ConstBlockSet &join_blocks(const TerminatorInst &term) const;
