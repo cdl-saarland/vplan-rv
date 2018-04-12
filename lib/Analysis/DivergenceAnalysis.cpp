@@ -87,6 +87,7 @@ DivergenceAnalysis::DivergenceAnalysis(const Function & F,
     : F(F), regionLoop(regionLoop), BDA(BDA), divergentValues() {}
 
 void DivergenceAnalysis::markDivergent(const Value &divVal) {
+  assert(isa<Instruction>(divVal) || isa<Argument>(divVal));
   divergentValues.insert(&divVal);
 }
 
@@ -120,9 +121,12 @@ bool DivergenceAnalysis::updateNormalInstruction(const Instruction &I) const {
 
 bool DivergenceAnalysis::updatePHINode(const PHINode &phi) const {
   // join in divergence of parent block
-  if (isDivergent(*phi.getParent()))
+  if (isTemporalDivergent(*phi.getParent())) return true;
+  if (!phi.hasConstantOrUndefValue() && isJoinDivergent(*phi.getParent())) {
     return true;
-  // join in incoming value divergence
+  }
+
+  // Otw, join in incoming value divergence
   for (size_t i = 0; i < phi.getNumIncomingValues(); ++i) {
     if (isDivergent(*phi.getIncomingValue(i)))
       return true;
@@ -133,16 +137,6 @@ bool DivergenceAnalysis::updatePHINode(const PHINode &phi) const {
 bool
 DivergenceAnalysis::inRegion(const Instruction & I) const {
   return !regionLoop || regionLoop->contains(I.getParent());
-}
-
-void
-DivergenceAnalysis::markPHIsDivergent(const BasicBlock & joinBlock) {
-   markDivergent(joinBlock); // all PHI nodes in this will become divergent
-   for (auto &blockInst : joinBlock) {
-     if (!isa<PHINode>(blockInst))
-       break;
-     worklist.push_back(&blockInst);
-   }
 }
 
 // marks all users of loop carried values of the loop headed by @loopHeader as divergent
@@ -167,7 +161,12 @@ DivergenceAnalysis::taintLoopLiveOuts(const BasicBlock & loopHeader) {
 
     // phi nodes at the fringes of the dominance region
     if (!BDA.dominates(loopHeader, *userBlock)) {
-      markPHIsDivergent(*userBlock);
+      markBlockTemporalDivergent(*userBlock); // all PHI nodes in this will become divergent
+      for (auto &blockInst : *userBlock) {
+        if (!isa<PHINode>(blockInst))
+          break;
+        worklist.push_back(&blockInst);
+      }
       continue;
     }
 
@@ -179,7 +178,7 @@ DivergenceAnalysis::taintLoopLiveOuts(const BasicBlock & loopHeader) {
         auto * opInst = dyn_cast<Instruction>(&Op);
         if (!opInst) continue;
         if (divLoop->contains(opInst->getParent())) {
-          markDivergent(I); // FIXME this pre-empts re-evaluation
+          markDivergent(I);
           pushUsers(I);
           break;
         }
@@ -245,7 +244,9 @@ void DivergenceAnalysis::compute(bool IsLCSSA) {
           if ((joinLoop == branchLoop) || // same loop level
               IsLCSSA // it is sufficient to taint LCSSA phi nodes
           ) {
-            markDivergent(*joinBlock);
+            if (joinLoop == branchLoop) markBlockJoinDivergent(*joinBlock);
+            if (joinLoop != branchLoop) markBlockTemporalDivergent(*joinBlock);
+
             for (auto &blockInst : *joinBlock) {
               if (!isa<PHINode>(blockInst))
                 break;
