@@ -189,6 +189,16 @@ static DomTreeNodeBase<BasicBlock>* GetNode(const TreeT &tree, const BasicBlock 
   return tree.getNode(const_cast<BasicBlock *>(&block));
 }
 
+Loop*
+BranchDependenceAnalysis::getLoopFor(const BasicBlock & block) const {
+  return loopInfo.getLoopFor(&block);
+}
+
+bool
+BranchDependenceAnalysis::dominates(const BasicBlock & A, const BasicBlock & B) const {
+  return domTree.dominates(&A, &B);
+}
+
 const ConstBlockSet &
 BranchDependenceAnalysis::join_blocks(const llvm::TerminatorInst &term) const {
   {
