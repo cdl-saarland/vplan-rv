@@ -169,7 +169,7 @@ static cl::opt<bool> EnableInterleavedMemAccesses(
 
 /// Maximum factor for an interleaved memory access.
 static cl::opt<bool> EnableDA(
-    "vectorizer-use-da", cl::init(true), cl::Hidden,
+    "vectorizer-use-da", cl::init(false), cl::Hidden,
     cl::desc("Use the LoopDivergenceAnalysis to detect more uniform values."));
 
 /// Maximum factor for an interleaved memory access.
