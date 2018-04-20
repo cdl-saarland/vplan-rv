@@ -3,7 +3,6 @@
 target datalayout = "e-i64:64-v16:16-v32:32-n16:32:64"
 target triple = "nvptx64-nvidia-cuda"
 
-; return (n < 0 ? a + threadIdx.x : b + threadIdx.x)
 define i32 @hidden_diverge(i32 %n, i32 %a, i32 %b) {
 ; CHECK-LABEL: Printing analysis 'Kernel Divergence Analysis' for function 'hidden_diverge'
 entry:
@@ -26,9 +25,6 @@ merge:
 }
 
 declare i32 @llvm.nvvm.read.ptx.sreg.tid.x()
-declare i32 @llvm.nvvm.read.ptx.sreg.tid.y()
-declare i32 @llvm.nvvm.read.ptx.sreg.tid.z()
-declare i32 @llvm.nvvm.read.ptx.sreg.laneid()
 
 !nvvm.annotations = !{!0}
 !0 = !{i32 (i32, i32, i32)* @hidden_diverge, !"kernel", i32 1}
