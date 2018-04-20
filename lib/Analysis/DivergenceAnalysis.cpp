@@ -88,6 +88,7 @@ DivergenceAnalysis::DivergenceAnalysis(const Function & F,
 
 void DivergenceAnalysis::markDivergent(const Value &divVal) {
   assert(isa<Instruction>(divVal) || isa<Argument>(divVal));
+  assert(!isAlwaysUniform(divVal) && "can not be a divergent");
   divergentValues.insert(&divVal);
 }
 
@@ -143,6 +144,7 @@ DivergenceAnalysis::inRegion(const Instruction & I) const {
 void
 DivergenceAnalysis::taintLoopLiveOuts(const BasicBlock & loopHeader) {
   auto * divLoop = BDA.getLoopFor(loopHeader);
+  assert(divLoop && "loopHeader is not actually part of a loop");
 
   SmallVector<BasicBlock*, 8> taintStack;
   divLoop->getExitBlocks(taintStack);
@@ -172,6 +174,7 @@ DivergenceAnalysis::taintLoopLiveOuts(const BasicBlock & loopHeader) {
 
     // taint outside users of values carried by divLoop
     for (auto & I : *userBlock) {
+      if (isAlwaysUniform(I)) continue;
       if (isDivergent(I)) continue;
 
       for (auto & Op : I.operands()) {
@@ -224,14 +227,14 @@ void DivergenceAnalysis::compute(bool IsLCSSA) {
     worklist.pop_back();
 
     // maintain uniformity of overrides
-    if (uniformOverrides.count(&I)) continue;
+    if (isAlwaysUniform(I)) continue;
 
     bool wasDivergent = isDivergent(I);
     if (wasDivergent)
       continue;
 
+    // propagate divergence caused by terminator I
     if (isa<TerminatorInst>(I)) {
-      // spread control divergence to phi nodes
       auto &term = cast<TerminatorInst>(I);
       if (updateTerminator(term)) {
         markDivergent(term);
@@ -264,7 +267,7 @@ void DivergenceAnalysis::compute(bool IsLCSSA) {
       }
     }
 
-    // update divergence info for this instruction
+    // update divergence of I due to divergent operands
     bool divergentUpd = false;
     if (isa<PHINode>(I)) {
       divergentUpd = updatePHINode(cast<PHINode>(I));
@@ -280,10 +283,12 @@ void DivergenceAnalysis::compute(bool IsLCSSA) {
   }
 }
 
+bool DivergenceAnalysis::isAlwaysUniform(const Value & val) const {
+  return uniformOverrides.count(&val);
+}
+
 bool DivergenceAnalysis::isDivergent(const Value &val) const {
-  if (divergentValues.count(&val))
-    return true;
-  return false;
+  return divergentValues.count(&val);
 }
 
 void DivergenceAnalysis::print(raw_ostream &OS, const Module *) const {
@@ -303,6 +308,8 @@ GPUDivergenceAnalysis::GPUDivergenceAnalysis(Function & F, const DominatorTree &
   for (auto &I : instructions(F)) {
     if (TTI.isSourceOfDivergence(&I)) {
       DA.markDivergent(I);
+    } else if (TTI.isAlwaysUniform(&I)) {
+      DA.addUniformOverride(I);
     }
   }
   for (auto &Arg : F.args()) {

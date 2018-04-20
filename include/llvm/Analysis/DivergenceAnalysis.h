@@ -86,11 +86,19 @@ public:
 
   DivergenceAnalysis(const Function & F, const Loop * regionLoop, BranchDependenceAnalysis &BDA);
   bool inRegion(const Instruction & I) const;
+
+  // mark @uniVal as a value that is always uniform
   void addUniformOverride(const Value& uniVal);
   void markDivergent(const Value &divVal);
+
   void compute(bool isLCSSA);
 
+  // whether @val will always return a uniform values regardless of its operands
+  bool isAlwaysUniform(const Value & val) const;
+
+  // whether @val is a divergent value
   bool isDivergent(const Value &val) const;
+
   void print(raw_ostream &OS, const Module *) const;
 };
 
