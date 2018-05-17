@@ -80,7 +80,7 @@ public:
   /// getOperandNo - Return the operand number in the predecessor's
   /// terminator of the successor.
   unsigned getOperandNo() const {
-    return It.getOperandNo();
+    return It.getUse().getOperandNo();
   }
 
   /// getUse - Return the operand Use in the predecessor's terminator
