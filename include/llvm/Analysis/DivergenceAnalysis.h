@@ -36,7 +36,11 @@ class DivergenceAnalysis {
   // Otw, analyze the whole function
   const Loop * regionLoop;
 
+  const DominatorTree & DT;
+  const LoopInfo & LI;
   BranchDependenceAnalysis &BDA;
+
+  // set of known-uniform values
   DenseSet<const Value *> uniformOverrides;
 
   // blocks with joining divergent control from different predecessors
@@ -84,7 +88,7 @@ public:
   const Loop* getRegionLoop() const { return regionLoop; }
   const Function& getFunction() const { return F; }
 
-  DivergenceAnalysis(const Function & F, const Loop * regionLoop, BranchDependenceAnalysis &BDA);
+  DivergenceAnalysis(const Function & F, const Loop * regionLoop, const DominatorTree & DT, const LoopInfo & LI, BranchDependenceAnalysis &BDA);
   bool inRegion(const Instruction & I) const;
 
   // mark @uniVal as a value that is always uniform
@@ -130,7 +134,7 @@ class LoopDivergenceAnalysis {
   DivergenceAnalysis DA;
 
 public:
-  LoopDivergenceAnalysis(BranchDependenceAnalysis &BDA, const Loop &loop);
+  LoopDivergenceAnalysis(const DominatorTree & DT, const LoopInfo & LI, BranchDependenceAnalysis &BDA, const Loop &loop);
 
   // Returns true if V is divergent.
   bool isDivergent(const Value &val) const;

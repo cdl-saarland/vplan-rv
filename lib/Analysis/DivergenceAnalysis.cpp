@@ -82,9 +82,11 @@ using namespace llvm;
 
 // class DivergenceAnalysis
 DivergenceAnalysis::DivergenceAnalysis(const Function & F,
-                                       const Loop *regionLoop,
+                                       const Loop * regionLoop,
+                                       const DominatorTree & DT,
+                                       const LoopInfo & LI,
                                        BranchDependenceAnalysis & BDA)
-    : F(F), regionLoop(regionLoop), BDA(BDA), divergentValues() {}
+    : F(F), regionLoop(regionLoop), DT(DT), LI(LI), BDA(BDA), divergentValues() {}
 
 void DivergenceAnalysis::markDivergent(const Value &divVal) {
   assert(isa<Instruction>(divVal) || isa<Argument>(divVal));
@@ -143,7 +145,7 @@ DivergenceAnalysis::inRegion(const Instruction & I) const {
 // marks all users of loop carried values of the loop headed by @loopHeader as divergent
 void
 DivergenceAnalysis::taintLoopLiveOuts(const BasicBlock & loopHeader) {
-  auto * divLoop = BDA.getLoopFor(loopHeader);
+  auto * divLoop = LI.getLoopFor(&loopHeader);
   assert(divLoop && "loopHeader is not actually part of a loop");
 
   SmallVector<BasicBlock*, 8> taintStack;
@@ -162,7 +164,7 @@ DivergenceAnalysis::taintLoopLiveOuts(const BasicBlock & loopHeader) {
     assert(!divLoop->contains(userBlock) && "irreducible control flow detected");
 
     // phi nodes at the fringes of the dominance region
-    if (!BDA.dominates(loopHeader, *userBlock)) {
+    if (!DT.dominates(&loopHeader, userBlock)) {
       markBlockTemporalDivergent(*userBlock); // all PHI nodes in this will become divergent
       for (auto &blockInst : *userBlock) {
         if (!isa<PHINode>(blockInst))
@@ -239,10 +241,10 @@ void DivergenceAnalysis::compute(bool IsLCSSA) {
       if (updateTerminator(term)) {
         markDivergent(term);
 
-        auto * branchLoop = BDA.getLoopFor(*term.getParent());
+        auto * branchLoop = LI.getLoopFor(term.getParent());
 
         for (const auto *joinBlock : BDA.join_blocks(term)) {
-          auto * joinLoop = BDA.getLoopFor(*joinBlock);
+          auto * joinLoop = LI.getLoopFor(joinBlock);
 
           if ((joinLoop == branchLoop) || // same loop level
               IsLCSSA // it is sufficient to taint LCSSA phi nodes
@@ -302,9 +304,9 @@ void DivergenceAnalysis::print(raw_ostream &OS, const Module *) const {
 }
 
 // class GPUDivergenceAnalysis
-GPUDivergenceAnalysis::GPUDivergenceAnalysis(Function & F, const DominatorTree & DT, const PostDominatorTree & PDT, const LoopInfo & loopInfo, const TargetTransformInfo & TTI)
-    : BDA(F, DT, PDT, loopInfo)
-    , DA(F, nullptr, BDA) {
+GPUDivergenceAnalysis::GPUDivergenceAnalysis(Function & F, const DominatorTree & DT, const PostDominatorTree & PDT, const LoopInfo & LI, const TargetTransformInfo & TTI)
+    : BDA(DT, PDT, LI)
+    , DA(F, nullptr, DT, LI, BDA) {
   for (auto &I : instructions(F)) {
     if (TTI.isSourceOfDivergence(&I)) {
       DA.markDivergent(I);
@@ -334,9 +336,11 @@ void GPUDivergenceAnalysis::print(raw_ostream &OS, const Module *mod) const {
 
 
 // class LoopDivergenceAnalysis
-LoopDivergenceAnalysis::LoopDivergenceAnalysis(BranchDependenceAnalysis &BDA,
+LoopDivergenceAnalysis::LoopDivergenceAnalysis(const DominatorTree & DT,
+                                               const LoopInfo & LI,
+                                               BranchDependenceAnalysis &BDA,
                                                const Loop &loop)
-    : DA(*loop.getHeader()->getParent(), &loop, BDA) {
+    : DA(*loop.getHeader()->getParent(), &loop, DT, LI, BDA) {
   for (const auto &I : *loop.getHeader()) {
     if (!isa<PHINode>(I))
       break;
@@ -363,18 +367,17 @@ void LoopDivergenceAnalysis::print(raw_ostream &OS, const Module *mod) const {
 
 // class LoopDivergencePrinter
 bool LoopDivergencePrinter::runOnFunction(Function &F) {
-  const PostDominatorTree &postDomTree =
+  const PostDominatorTree & PDT =
       getAnalysis<PostDominatorTreeWrapperPass>().getPostDomTree();
-  const DominatorTree &domTree =
+  const DominatorTree & DT =
       getAnalysis<DominatorTreeWrapperPass>().getDomTree();
-  const LoopInfo &loopInfo = getAnalysis<LoopInfoWrapperPass>().getLoopInfo();
-  BDA =
-      make_unique<BranchDependenceAnalysis>(F, domTree, postDomTree, loopInfo);
+  const LoopInfo & LI = getAnalysis<LoopInfoWrapperPass>().getLoopInfo();
+  BDA = make_unique<BranchDependenceAnalysis>(DT, PDT, LI);
 
   for (auto & BB : F) {
-    auto * loop = loopInfo.getLoopFor(&BB);
+    auto * loop = LI.getLoopFor(&BB);
     if (!loop || loop->getHeader() != &BB) continue;
-    loopDivInfo.push_back(make_unique<LoopDivergenceAnalysis>(*BDA, *loop));
+    loopDivInfo.push_back(make_unique<LoopDivergenceAnalysis>(DT, LI, *BDA, *loop));
   }
 
   return false;
