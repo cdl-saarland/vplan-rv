@@ -141,7 +141,7 @@ BranchDependenceAnalysis::join_blocks(const TerminatorInst & term) {
 
       // control flow join (establish new def)
       if ((lastSuccDef != defBlock) ||
-          (defBlock == succBlock) && succBlocks.count(defBlock)
+          ((defBlock == succBlock) && succBlocks.count(defBlock))
       ) {
         if (joinBlocks->insert(succBlock).second) {
           auto itNewDef = defMap.emplace(succBlock, succBlock).first;
