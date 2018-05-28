@@ -77,9 +77,14 @@ BranchDependenceAnalysis::join_blocks(const TerminatorInst & term) {
   // loop exits
   SmallPtrSet<const BasicBlock*, 4> exitBlocks;
 
+  // immediate successor blocks (of @term)
+  SmallPtrSet<const BasicBlock*, 2> succBlocks;
+
   // bootstrap with branch targets
   for (const auto * succBlock : successors(term.getParent())) {
     auto itPair = defMap.emplace(succBlock, succBlock);
+
+    succBlocks.insert(succBlock);
 
     // immediate loop exit from @term
     const auto * succLoop = loopInfo.getLoopFor(succBlock);
@@ -135,11 +140,13 @@ BranchDependenceAnalysis::join_blocks(const TerminatorInst & term) {
       const auto * lastSuccDef = itLastDef->second;
 
       // control flow join (establish new def)
-      if (lastSuccDef != defBlock) {
-        auto itNewDef = defMap.emplace(succBlock, succBlock).first;
-        worklist.push_back(itNewDef);
-
-        joinBlocks->insert(succBlock);
+      if ((lastSuccDef != defBlock) ||
+          (defBlock == succBlock) && succBlocks.count(defBlock)
+      ) {
+        if (joinBlocks->insert(succBlock).second) {
+          auto itNewDef = defMap.emplace(succBlock, succBlock).first;
+          worklist.push_back(itNewDef);
+        }
       }
     }
   }
