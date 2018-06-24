@@ -8443,7 +8443,7 @@ void SITargetLowering::computeKnownBitsForFrameIndex(const SDValue Op,
 }
 
 bool SITargetLowering::isSDNodeSourceOfDivergence(const SDNode * N,
-  FunctionLoweringInfo * FLI, DivergenceAnalysis * DA) const
+  FunctionLoweringInfo * FLI, KernelDivergenceAnalysis * KDA) const
 {
   switch (N->getOpcode()) {
     case ISD::Register:
@@ -8476,7 +8476,7 @@ bool SITargetLowering::isSDNodeSourceOfDivergence(const SDNode * N,
           else if (!AMDGPU::isEntryFunctionCC(FLI->Fn->getCallingConv()))
             return true;
         }
-        return !DA || DA->isDivergent(FLI->getValueFromVirtualReg(Reg));
+        return !KDA || KDA->isDivergent(FLI->getValueFromVirtualReg(Reg));
       }
     }
     break;
