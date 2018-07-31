@@ -31,28 +31,29 @@ class TargetTransformInfo;
 
 // generic divergence analysis
 class DivergenceAnalysis {
-  const Function & F;
-  // if regionLoop != nullptr, analyze only in the scope of the loop
-  // Otw, analyze the whole function
-  const Loop * regionLoop;
+public:
+  DivergenceAnalysis(const Function & F, const Loop * regionLoop, const DominatorTree & DT, const LoopInfo & LI, BranchDependenceAnalysis &BDA);
 
-  const DominatorTree & DT;
-  const LoopInfo & LI;
-  BranchDependenceAnalysis &BDA;
+  const Loop* getRegionLoop() const { return regionLoop; }
+  const Function& getFunction() const { return F; }
 
-  // set of known-uniform values
-  DenseSet<const Value *> uniformOverrides;
+  bool inRegion(const Instruction & I) const;
 
-  // blocks with joining divergent control from different predecessors
-  DenseSet<const BasicBlock*> divergentJoinBlocks;
+  // mark @uniVal as a value that is always uniform
+  void addUniformOverride(const Value& uniVal);
+  void markDivergent(const Value &divVal);
 
-  // blocks with joining divergent control from multiple loop iterations
-  DenseSet<const BasicBlock*> temporalDivergentBlocks;
+  void compute(bool isLCSSA);
 
-  // detected/marked divergent values
-  DenseSet<const Value *> divergentValues;
-  std::vector<const Instruction *> worklist;
+  // whether @val will always return a uniform values regardless of its operands
+  bool isAlwaysUniform(const Value & val) const;
 
+  // whether @val is a divergent value
+  bool isDivergent(const Value &val) const;
+
+  void print(raw_ostream &OS, const Module *) const;
+
+private:
   bool updateTerminator(const TerminatorInst &term) const;
   bool updatePHINode(const PHINode &phi) const;
 
@@ -84,26 +85,29 @@ class DivergenceAnalysis {
     return divergentJoinBlocks.count(&block);
   }
 
-public:
-  const Loop* getRegionLoop() const { return regionLoop; }
-  const Function& getFunction() const { return F; }
+private:
+  const Function & F;
+  // if regionLoop != nullptr, analyze only in the scope of the loop
+  // Otw, analyze the whole function
+  const Loop * regionLoop;
 
-  DivergenceAnalysis(const Function & F, const Loop * regionLoop, const DominatorTree & DT, const LoopInfo & LI, BranchDependenceAnalysis &BDA);
-  bool inRegion(const Instruction & I) const;
+  const DominatorTree & DT;
+  const LoopInfo & LI;
+  BranchDependenceAnalysis &BDA;
 
-  // mark @uniVal as a value that is always uniform
-  void addUniformOverride(const Value& uniVal);
-  void markDivergent(const Value &divVal);
+  // set of known-uniform values
+  DenseSet<const Value *> uniformOverrides;
 
-  void compute(bool isLCSSA);
+  // blocks with joining divergent control from different predecessors
+  DenseSet<const BasicBlock*> divergentJoinBlocks;
 
-  // whether @val will always return a uniform values regardless of its operands
-  bool isAlwaysUniform(const Value & val) const;
+  // blocks with joining divergent control from multiple loop iterations
+  DenseSet<const BasicBlock*> temporalDivergentBlocks;
 
-  // whether @val is a divergent value
-  bool isDivergent(const Value &val) const;
+  // detected/marked divergent values
+  DenseSet<const Value *> divergentValues;
+  std::vector<const Instruction *> worklist;
 
-  void print(raw_ostream &OS, const Module *) const;
 };
 
 // divergence analysis frontend for GPU kernels
@@ -119,6 +123,8 @@ public:
       const LoopInfo & LI,
       const TargetTransformInfo & TTI);
 
+  const Function & getFunction() const { return DA.getFunction(); }
+
   // Returns true if V is divergent.
   bool isDivergent(const Value &val) const;
 
@@ -131,8 +137,6 @@ public:
 
 // divergence analysis frontend for loops
 class LoopDivergenceAnalysis {
-  DivergenceAnalysis DA;
-
 public:
   LoopDivergenceAnalysis(const DominatorTree & DT, const LoopInfo & LI, BranchDependenceAnalysis &BDA, const Loop &loop);
 
@@ -144,13 +148,13 @@ public:
 
   // Print all divergent values in the loop.
   void print(raw_ostream &OS, const Module *) const;
+
+private:
+  DivergenceAnalysis DA;
 };
 
 // loop divergence printer pass - for standalone testing
 class LoopDivergencePrinter : public FunctionPass {
-  std::unique_ptr<BranchDependenceAnalysis> BDA;
-  SmallVector<std::unique_ptr<LoopDivergenceAnalysis>, 6> loopDivInfo;
-
 public:
   static char ID;
 
@@ -164,6 +168,11 @@ public:
 
   // Print all divergent values in the function.
   void print(raw_ostream &OS, const Module *) const override;
+
+private:
+  std::unique_ptr<BranchDependenceAnalysis> BDA;
+  SmallVector<std::unique_ptr<LoopDivergenceAnalysis>, 6> loopDivInfo;
+
 };
 
 } // namespace llvm
