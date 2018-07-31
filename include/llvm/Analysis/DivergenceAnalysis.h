@@ -45,6 +45,8 @@ public:
 
   void compute(bool isLCSSA);
 
+  bool hasDetectedDivergence() const { return !divergentValues.empty(); }
+
   // whether @val will always return a uniform values regardless of its operands
   bool isAlwaysUniform(const Value & val) const;
 
@@ -122,6 +124,8 @@ public:
       const PostDominatorTree & PDT,
       const LoopInfo & LI,
       const TargetTransformInfo & TTI);
+
+  bool hasDivergence() const { return DA.hasDetectedDivergence(); }
 
   const Function & getFunction() const { return DA.getFunction(); }
 

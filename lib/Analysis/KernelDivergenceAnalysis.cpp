@@ -337,8 +337,9 @@ bool KernelDivergenceAnalysis::isDivergent(const Value *V) const {
 }
 
 void KernelDivergenceAnalysis::print(raw_ostream &OS, const Module *) const {
-  if (!gpuDA && DivergentValues.empty())
+  if ((!gpuDA || !gpuDA->hasDivergence()) && DivergentValues.empty())
     return;
+
   const Function *F;
   if (!DivergentValues.empty()) {
     const Value *FirstDivergentValue = *DivergentValues.begin();
