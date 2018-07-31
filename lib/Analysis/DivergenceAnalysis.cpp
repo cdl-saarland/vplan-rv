@@ -7,9 +7,10 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// This file implements divergence analysis which determines whether a branch
-// in a GPU program is divergent.It can help branch optimizations such as jump
-// threading and loop unswitching to make better decisions.
+// This file implements a general divergence analysis for loop vectorization
+// and GPU programs. It determines whether a branch in a loop or GPU program
+// is divergent. It can help branch optimizations such as jump threading and
+// loop unswitching to make better decisions.
 //
 // GPU programs typically use the SIMD execution model, where multiple threads
 // in the same execution group have to execute in lock-step. Therefore, if the
@@ -25,16 +26,23 @@
 // optimizations.
 //
 // This file defines divergence analysis which computes a conservative but
-// non-trivial approximation of all divergent branches in a GPU program. It
-// partially implements the approach described in
+// non-trivial approximation of all divergent branches in a GPU program. This
+// implementation is derived from the Vectorization Analysis of the Region
+// Vectorizer (RV). That implementation in turn is based on the approach
+// described in
 //
-//   Divergence Analysis
-//   Sampaio, Souza, Collange, Pereira
-//   TOPLAS '13
+//   Improving Performance of OpenCL on CPUs
+//   Ralf Karrenberg and Sebastian Hack
+//   CC '12
 //
-// The divergence analysis identifies the sources of divergence (e.g., special
-// variables that hold the thread ID), and recursively marks variables that are
-// data or sync dependent on a source of divergence as divergent.
+// The DivergenceAnalysis implementation is generic in the sense that it doe
+// not itself identify original sources of divergence.
+// Instead specialized adapter classes, (LoopDivergenceAnalysis) for loops and
+// (GPUDivergenceAnalysis) for GPU programs, identify the sources of divergence
+// (e.g., special variables that hold the thread ID or the iteration variable).
+//
+// The generic implementation propagates divergence to variables that are data
+// or sync dependent on a source of divergence.
 //
 // While data dependency is a well-known concept, the notion of sync dependency
 // is worth more explanation. Sync dependence characterizes the control flow
@@ -54,13 +62,17 @@
 // because the branch "br i1 %cond" depends on %tid and affects which value %a
 // is assigned to.
 //
-// The current implementation has the following limitations:
+// The sync dependence detection (which branch induces divergence in which join points)
+// is implemented in the BranchDependenceAnalysis.
+//
+// The current DivergenceAnalysis implementation has the following limitations:
 // 1. intra-procedural. It conservatively considers the arguments of a
 //    non-kernel-entry function and the return value of a function call as
 //    divergent.
 // 2. memory as black box. It conservatively considers values loaded from
 //    generic or local address as divergent. This can be improved by leveraging
-//    pointer analysis.
+//    pointer analysis and/or by modelling non-escaping memory objects in SSA
+//    as done in RV.
 //
 //===----------------------------------------------------------------------===//
 
