@@ -288,7 +288,7 @@ FunctionPass *llvm::createKernelDivergenceAnalysisPass() {
 void KernelDivergenceAnalysis::getAnalysisUsage(AnalysisUsage &AU) const {
   AU.addRequired<DominatorTreeWrapperPass>();
   AU.addRequired<PostDominatorTreeWrapperPass>();
-  AU.addRequired<LoopInfoWrapperPass>();
+  if (UseRVDA) AU.addRequired<LoopInfoWrapperPass>();
   AU.setPreservesAll();
 }
 
@@ -304,26 +304,15 @@ bool KernelDivergenceAnalysis::runOnFunction(Function &F) {
     return false;
 
   DivergentValues.clear();
+  gpuDA = nullptr;
 
   auto &DT = getAnalysis<DominatorTreeWrapperPass>().getDomTree();
   auto &PDT = getAnalysis<PostDominatorTreeWrapperPass>().getPostDomTree();
 
   if (UseRVDA) {
-    // run the VPlan+RV divergence analysis
+    // run the new GPU divergence analysis
     auto &LI = getAnalysis<LoopInfoWrapperPass>().getLoopInfo();
-    GPUDivergenceAnalysis gpuDA(F, DT, PDT, LI, TTI);
-
-    // TODO keep gpuDa around and query it directly in KernelDivergenceAnalysis::isDivergent()
-    for (auto & I : instructions(F)) {
-      if (gpuDA.isDivergent(I)) {
-        DivergentValues.insert(&I);
-      }
-    }
-    for (auto & Arg : F.args()) {
-      if (gpuDA.isDivergent(Arg)) {
-        DivergentValues.insert(&Arg);
-      }
-    }
+    gpuDA = std::make_unique<GPUDivergenceAnalysis>(F, DT, PDT, LI, TTI);
 
   } else {
     // run LLVM's existing DivergenceAnalysis
@@ -342,23 +331,32 @@ bool KernelDivergenceAnalysis::runOnFunction(Function &F) {
   return false;
 }
 
+bool KernelDivergenceAnalysis::isDivergent(const Value *V) const {
+  if (gpuDA) return gpuDA->isDivergent(*V);
+  else return DivergentValues.count(V);
+}
+
 void KernelDivergenceAnalysis::print(raw_ostream &OS, const Module *) const {
-  if (DivergentValues.empty())
+  if (!gpuDA && DivergentValues.empty())
     return;
-  const Value *FirstDivergentValue = *DivergentValues.begin();
   const Function *F;
-  if (const Argument *Arg = dyn_cast<Argument>(FirstDivergentValue)) {
-    F = Arg->getParent();
-  } else if (const Instruction *I =
-                 dyn_cast<Instruction>(FirstDivergentValue)) {
-    F = I->getParent()->getParent();
-  } else {
-    llvm_unreachable("Only arguments and instructions can be divergent");
+  if (!DivergentValues.empty()) {
+    const Value *FirstDivergentValue = *DivergentValues.begin();
+    if (const Argument *Arg = dyn_cast<Argument>(FirstDivergentValue)) {
+      F = Arg->getParent();
+    } else if (const Instruction *I =
+                   dyn_cast<Instruction>(FirstDivergentValue)) {
+      F = I->getParent()->getParent();
+    } else {
+      llvm_unreachable("Only arguments and instructions can be divergent");
+    }
+  } else if (gpuDA) {
+    F = &gpuDA->getFunction();
   }
 
   // Dumps all divergent values in F, arguments and then instructions.
   for (auto &Arg : F->args()) {
-    OS << (DivergentValues.count(&Arg) ? "DIVERGENT: " : "           ");
+    OS << (isDivergent(&Arg) ? "DIVERGENT: " : "           ");
     OS << Arg << "\n";
   }
   // Iterate instructions using instructions() to ensure a deterministic order.
@@ -366,7 +364,7 @@ void KernelDivergenceAnalysis::print(raw_ostream &OS, const Module *) const {
     auto &BB = *BI;
     OS << "\n           " << BB.getName() << ":\n";
     for (auto &I : BB.instructionsWithoutDebug()) {
-      OS << (DivergentValues.count(&I) ? "DIVERGENT:     " : "               ");
+      OS << (isDivergent(&I) ? "DIVERGENT:     " : "               ");
       OS << I << "\n";
     }
   }
