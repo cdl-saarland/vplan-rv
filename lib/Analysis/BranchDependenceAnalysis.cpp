@@ -18,8 +18,8 @@
 // control-induced divergence in phi nodes.
 //
 //===----------------------------------------------------------------------===//
-#include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/Analysis/BranchDependenceAnalysis.h"
+#include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/Analysis/PostDominators.h"
 #include "llvm/IR/BasicBlock.h"
 #include "llvm/IR/CFG.h"
@@ -30,16 +30,12 @@
 
 namespace llvm {
 
-
 ConstBlockSet BranchDependenceAnalysis::emptyBlockSet;
 
-BranchDependenceAnalysis::BranchDependenceAnalysis(const DominatorTree & _domTree,
-                           const PostDominatorTree & _postDomTree,
-                           const LoopInfo & _loopInfo)
-: domTree(_domTree)
-, postDomTree(_postDomTree)
-, loopInfo(_loopInfo)
-{}
+BranchDependenceAnalysis::BranchDependenceAnalysis(
+    const DominatorTree &_domTree, const PostDominatorTree &_postDomTree,
+    const LoopInfo &_loopInfo)
+    : domTree(_domTree), postDomTree(_postDomTree), loopInfo(_loopInfo) {}
 
 BranchDependenceAnalysis::~BranchDependenceAnalysis() {
   for (auto it : cachedJoinBlocks) {
@@ -47,41 +43,43 @@ BranchDependenceAnalysis::~BranchDependenceAnalysis() {
   }
 }
 
-
-/// \brief returns the set of blocks whose PHI nodes become divergent if @branch is divergent
+/// \brief returns the set of blocks whose PHI nodes become divergent if @branch
+/// is divergent
 const ConstBlockSet &
-BranchDependenceAnalysis::join_blocks(const TerminatorInst & term) {
+BranchDependenceAnalysis::join_blocks(const TerminatorInst &term) {
   if (term.getNumSuccessors() < 1) {
     return emptyBlockSet;
   }
 
   auto it = cachedJoinBlocks.find(&term);
-  if (it != cachedJoinBlocks.end()) return *it->second;
+  if (it != cachedJoinBlocks.end())
+    return *it->second;
 
-  auto * joinBlocks = new ConstBlockSet;
+  auto *joinBlocks = new ConstBlockSet;
 
   // immediate post dominator (no join block beyond that block)
-  const auto * pdNode = postDomTree.getNode(const_cast<BasicBlock*>(term.getParent()));
-  const auto * ipdNode = pdNode->getIDom();
-  const auto * pdBoundBlock = ipdNode ? ipdNode->getBlock() : nullptr;
+  const auto *pdNode =
+      postDomTree.getNode(const_cast<BasicBlock *>(term.getParent()));
+  const auto *ipdNode = pdNode->getIDom();
+  const auto *pdBoundBlock = ipdNode ? ipdNode->getBlock() : nullptr;
 
   // loop of branch (loop exits may exhibit temporal diverence)
-  const auto * termLoop = loopInfo.getLoopFor(term.getParent());
+  const auto *termLoop = loopInfo.getLoopFor(term.getParent());
 
   // maps blocks to last valid def
-  using DefMap = std::map<const BasicBlock*, const BasicBlock*>;
+  using DefMap = std::map<const BasicBlock *, const BasicBlock *>;
   DefMap defMap;
 
   std::vector<DefMap::iterator> worklist;
 
   // loop exits
-  SmallPtrSet<const BasicBlock*, 4> exitBlocks;
+  SmallPtrSet<const BasicBlock *, 4> exitBlocks;
 
   // immediate successor blocks (of @term)
-  SmallPtrSet<const BasicBlock*, 2> succBlocks;
+  SmallPtrSet<const BasicBlock *, 2> succBlocks;
 
   // bootstrap with branch targets
-  for (const auto * succBlock : successors(term.getParent())) {
+  for (const auto *succBlock : successors(term.getParent())) {
     auto itPair = defMap.emplace(succBlock, succBlock);
 
     succBlocks.insert(succBlock);
@@ -96,31 +94,33 @@ BranchDependenceAnalysis::join_blocks(const TerminatorInst & term) {
     worklist.push_back(itPair.first);
   }
 
-  const BasicBlock * termLoopHeader = termLoop ? termLoop->getHeader() : nullptr;
+  const BasicBlock *termLoopHeader = termLoop ? termLoop->getHeader() : nullptr;
 
   // propagate def (collecting join blocks on the way)
   while (!worklist.empty()) {
     auto itDef = worklist.back();
     worklist.pop_back();
 
-    const auto * block = itDef->first;
-    const auto * defBlock = itDef->second;
+    const auto *block = itDef->first;
+    const auto *defBlock = itDef->second;
     assert(defBlock);
 
-    if (exitBlocks.count(block)) continue;
+    if (exitBlocks.count(block))
+      continue;
 
     // don't step over postdom (if any)
-    if (block == pdBoundBlock) continue;
+    if (block == pdBoundBlock)
+      continue;
 
-    if (block == termLoopHeader) continue; // don't propagate beyond termLoopHeader or def will be overwritten
+    if (block == termLoopHeader)
+      continue; // don't propagate beyond termLoopHeader or def will be
+                // overwritten
 
-    for (const auto * succBlock : successors(block)) {
+    for (const auto *succBlock : successors(block)) {
 
       // loop exit (temporal divergence)
-      const auto * succLoop = loopInfo.getLoopFor(succBlock);
-      if (termLoop &&
-         (!succLoop || !termLoop->contains(succBlock)))
-      {
+      const auto *succLoop = loopInfo.getLoopFor(succBlock);
+      if (termLoop && (!succLoop || !termLoop->contains(succBlock))) {
         defMap.emplace(succBlock, defBlock);
         exitBlocks.insert(succBlock);
         continue;
@@ -136,12 +136,11 @@ BranchDependenceAnalysis::join_blocks(const TerminatorInst & term) {
         continue;
       }
 
-      const auto * lastSuccDef = itLastDef->second;
+      const auto *lastSuccDef = itLastDef->second;
 
       // control flow join (establish new def)
       if ((lastSuccDef != defBlock) ||
-          ((defBlock == succBlock) && succBlocks.count(defBlock))
-      ) {
+          ((defBlock == succBlock) && succBlocks.count(defBlock))) {
         if (joinBlocks->insert(succBlock).second) {
           auto itNewDef = defMap.emplace(succBlock, succBlock).first;
           worklist.push_back(itNewDef);
@@ -150,7 +149,8 @@ BranchDependenceAnalysis::join_blocks(const TerminatorInst & term) {
     }
   }
 
-  // if the ipd is inside the loop, the definition at the loop header will be the same as at the ipd (no other defs can reach)
+  // if the ipd is inside the loop, the definition at the loop header will be
+  // the same as at the ipd (no other defs can reach)
   //
   // A // loop header
   // |
@@ -165,7 +165,8 @@ BranchDependenceAnalysis::join_blocks(const TerminatorInst & term) {
   // D post-dominates B as it is the only proper exit from the "A loop".
   // If C has a divergent branch, propagation will therefore stop at D.
   // That implies that B will never receive a definition.
-  // But that definition can only be the same as at D (D itself in thise case) because all paths to anywhere have to pass through D.
+  // But that definition can only be the same as at D (D itself in thise case)
+  // because all paths to anywhere have to pass through D.
   //
   if (termLoop && termLoop->contains(pdBoundBlock)) {
     defMap[termLoopHeader] = defMap[pdBoundBlock];
@@ -174,10 +175,10 @@ BranchDependenceAnalysis::join_blocks(const TerminatorInst & term) {
   // analyze reached loop exits
   if (!exitBlocks.empty()) {
     assert(termLoop);
-    const auto * headerDefBlock = defMap[termLoopHeader];
+    const auto *headerDefBlock = defMap[termLoopHeader];
     assert(headerDefBlock && "no definition in header of carrying loop");
 
-    for (const auto * exitBlock : exitBlocks) {
+    for (const auto *exitBlock : exitBlocks) {
       assert((defMap[exitBlock] != nullptr) && "no reaching def at loop exit");
       if (defMap[exitBlock] != headerDefBlock) {
         joinBlocks->insert(exitBlock);
@@ -188,6 +189,5 @@ BranchDependenceAnalysis::join_blocks(const TerminatorInst & term) {
   cachedJoinBlocks[&term] = joinBlocks;
   return *joinBlocks;
 }
-
 
 } // namespace llvm

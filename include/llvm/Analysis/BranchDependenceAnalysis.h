@@ -33,24 +33,24 @@ using ConstBlockSet = SmallPtrSet<const BasicBlock *, 4>;
 class BranchDependenceAnalysis {
   static ConstBlockSet emptyBlockSet;
 
-  const DominatorTree & domTree;
-  const PostDominatorTree & postDomTree;
-  const LoopInfo & loopInfo;
+  const DominatorTree &domTree;
+  const PostDominatorTree &postDomTree;
+  const LoopInfo &loopInfo;
 
-  std::map<const TerminatorInst*, ConstBlockSet*> cachedJoinBlocks;
+  std::map<const TerminatorInst *, ConstBlockSet *> cachedJoinBlocks;
 
 public:
-  bool inRegion(const BasicBlock & BB) const;
+  bool inRegion(const BasicBlock &BB) const;
 
   ~BranchDependenceAnalysis();
-  BranchDependenceAnalysis(const DominatorTree & domTree,
-                           const PostDominatorTree & postDomTree,
-                           const LoopInfo & loopInfo);
+  BranchDependenceAnalysis(const DominatorTree &domTree,
+                           const PostDominatorTree &postDomTree,
+                           const LoopInfo &loopInfo);
 
-  /// \brief returns the set of blocks whose PHI nodes become divergent if @branch is divergent
-  const ConstBlockSet & join_blocks(const TerminatorInst & term);
+  /// \brief returns the set of blocks whose PHI nodes become divergent if
+  /// @branch is divergent
+  const ConstBlockSet &join_blocks(const TerminatorInst &term);
 };
-
 
 } // namespace llvm
 
