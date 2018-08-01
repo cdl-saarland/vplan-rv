@@ -62,8 +62,8 @@
 // because the branch "br i1 %cond" depends on %tid and affects which value %a
 // is assigned to.
 //
-// The sync dependence detection (which branch induces divergence in which join points)
-// is implemented in the BranchDependenceAnalysis.
+// The sync dependence detection (which branch induces divergence in which join
+// points) is implemented in the BranchDependenceAnalysis.
 //
 // The current DivergenceAnalysis implementation has the following limitations:
 // 1. intra-procedural. It conservatively considers the arguments of a
@@ -93,12 +93,13 @@
 using namespace llvm;
 
 // class DivergenceAnalysis
-DivergenceAnalysis::DivergenceAnalysis(const Function & F,
-                                       const Loop * regionLoop,
-                                       const DominatorTree & DT,
-                                       const LoopInfo & LI,
-                                       BranchDependenceAnalysis & BDA)
-    : F(F), regionLoop(regionLoop), DT(DT), LI(LI), BDA(BDA), divergentValues() {}
+DivergenceAnalysis::DivergenceAnalysis(const Function &F,
+                                       const Loop *regionLoop,
+                                       const DominatorTree &DT,
+                                       const LoopInfo &LI,
+                                       BranchDependenceAnalysis &BDA)
+    : F(F), regionLoop(regionLoop), DT(DT), LI(LI), BDA(BDA),
+      divergentValues() {}
 
 void DivergenceAnalysis::markDivergent(const Value &divVal) {
   assert(isa<Instruction>(divVal) || isa<Argument>(divVal));
@@ -106,7 +107,7 @@ void DivergenceAnalysis::markDivergent(const Value &divVal) {
   divergentValues.insert(&divVal);
 }
 
-void DivergenceAnalysis::addUniformOverride(const Value& uniVal) {
+void DivergenceAnalysis::addUniformOverride(const Value &uniVal) {
   uniformOverrides.insert(&uniVal);
 }
 
@@ -136,7 +137,8 @@ bool DivergenceAnalysis::updateNormalInstruction(const Instruction &I) const {
 
 bool DivergenceAnalysis::updatePHINode(const PHINode &phi) const {
   // join in divergence of parent block
-  if (isTemporalDivergent(*phi.getParent())) return true;
+  if (isTemporalDivergent(*phi.getParent()))
+    return true;
   if (!phi.hasConstantOrUndefValue() && isJoinDivergent(*phi.getParent())) {
     return true;
   }
@@ -149,35 +151,36 @@ bool DivergenceAnalysis::updatePHINode(const PHINode &phi) const {
   return false;
 }
 
-bool
-DivergenceAnalysis::inRegion(const Instruction & I) const {
+bool DivergenceAnalysis::inRegion(const Instruction &I) const {
   return !regionLoop || regionLoop->contains(I.getParent());
 }
 
-// marks all users of loop carried values of the loop headed by @loopHeader as divergent
-void
-DivergenceAnalysis::taintLoopLiveOuts(const BasicBlock & loopHeader) {
-  auto * divLoop = LI.getLoopFor(&loopHeader);
+// marks all users of loop carried values of the loop headed by @loopHeader as
+// divergent
+void DivergenceAnalysis::taintLoopLiveOuts(const BasicBlock &loopHeader) {
+  auto *divLoop = LI.getLoopFor(&loopHeader);
   assert(divLoop && "loopHeader is not actually part of a loop");
 
-  SmallVector<BasicBlock*, 8> taintStack;
+  SmallVector<BasicBlock *, 8> taintStack;
   divLoop->getExitBlocks(taintStack);
 
-  DenseSet<const BasicBlock*> visited;
-  for (auto * block : taintStack) {
+  DenseSet<const BasicBlock *> visited;
+  for (auto *block : taintStack) {
     visited.insert(block);
   }
   visited.insert(&loopHeader);
 
   while (!taintStack.empty()) {
-    auto * userBlock = taintStack.back();
+    auto *userBlock = taintStack.back();
     taintStack.pop_back();
 
-    assert(!divLoop->contains(userBlock) && "irreducible control flow detected");
+    assert(!divLoop->contains(userBlock) &&
+           "irreducible control flow detected");
 
     // phi nodes at the fringes of the dominance region
     if (!DT.dominates(&loopHeader, userBlock)) {
-      markBlockTemporalDivergent(*userBlock); // all PHI nodes in this will become divergent
+      markBlockTemporalDivergent(
+          *userBlock); // all PHI nodes in this will become divergent
       for (auto &blockInst : *userBlock) {
         if (!isa<PHINode>(blockInst))
           break;
@@ -187,13 +190,16 @@ DivergenceAnalysis::taintLoopLiveOuts(const BasicBlock & loopHeader) {
     }
 
     // taint outside users of values carried by divLoop
-    for (auto & I : *userBlock) {
-      if (isAlwaysUniform(I)) continue;
-      if (isDivergent(I)) continue;
+    for (auto &I : *userBlock) {
+      if (isAlwaysUniform(I))
+        continue;
+      if (isDivergent(I))
+        continue;
 
-      for (auto & Op : I.operands()) {
-        auto * opInst = dyn_cast<Instruction>(&Op);
-        if (!opInst) continue;
+      for (auto &Op : I.operands()) {
+        auto *opInst = dyn_cast<Instruction>(&Op);
+        if (!opInst)
+          continue;
         if (divLoop->contains(opInst->getParent())) {
           markDivergent(I);
           pushUsers(I);
@@ -203,15 +209,15 @@ DivergenceAnalysis::taintLoopLiveOuts(const BasicBlock & loopHeader) {
     }
 
     // visit all blocks in the dominance region
-    for (auto * succBlock : successors(userBlock)) {
-      if (!visited.insert(userBlock).second) continue;
+    for (auto *succBlock : successors(userBlock)) {
+      if (!visited.insert(userBlock).second)
+        continue;
       taintStack.push_back(succBlock);
     }
   }
 }
 
-void
-DivergenceAnalysis::pushUsers(const Instruction & I) {
+void DivergenceAnalysis::pushUsers(const Instruction &I) {
   for (const auto *user : I.users()) {
     const auto *userInst = dyn_cast<const Instruction>(user);
     if (!userInst)
@@ -241,7 +247,8 @@ void DivergenceAnalysis::compute(bool IsLCSSA) {
     worklist.pop_back();
 
     // maintain uniformity of overrides
-    if (isAlwaysUniform(I)) continue;
+    if (isAlwaysUniform(I))
+      continue;
 
     bool wasDivergent = isDivergent(I);
     if (wasDivergent)
@@ -253,16 +260,18 @@ void DivergenceAnalysis::compute(bool IsLCSSA) {
       if (updateTerminator(term)) {
         markDivergent(term);
 
-        auto * branchLoop = LI.getLoopFor(term.getParent());
+        auto *branchLoop = LI.getLoopFor(term.getParent());
 
         for (const auto *joinBlock : BDA.join_blocks(term)) {
-          auto * joinLoop = LI.getLoopFor(joinBlock);
+          auto *joinLoop = LI.getLoopFor(joinBlock);
 
           if ((joinLoop == branchLoop) || // same loop level
               IsLCSSA // it is sufficient to taint LCSSA phi nodes
           ) {
-            if (joinLoop == branchLoop) markBlockJoinDivergent(*joinBlock);
-            if (joinLoop != branchLoop) markBlockTemporalDivergent(*joinBlock);
+            if (joinLoop == branchLoop)
+              markBlockJoinDivergent(*joinBlock);
+            if (joinLoop != branchLoop)
+              markBlockTemporalDivergent(*joinBlock);
 
             for (auto &blockInst : *joinBlock) {
               if (!isa<PHINode>(blockInst))
@@ -271,8 +280,10 @@ void DivergenceAnalysis::compute(bool IsLCSSA) {
             }
 
           } else {
-            // users of values carried by (branchLoop) outside the loop become divergent
-            // these users have to be dominated by the header of branchLoop or they are PHI nodes at the fringes of that dominated region
+            // users of values carried by (branchLoop) outside the loop become
+            // divergent these users have to be dominated by the header of
+            // branchLoop or they are PHI nodes at the fringes of that dominated
+            // region
 
             taintLoopLiveOuts(*branchLoop->getHeader());
           }
@@ -297,7 +308,7 @@ void DivergenceAnalysis::compute(bool IsLCSSA) {
   }
 }
 
-bool DivergenceAnalysis::isAlwaysUniform(const Value & val) const {
+bool DivergenceAnalysis::isAlwaysUniform(const Value &val) const {
   return uniformOverrides.count(&val);
 }
 
@@ -316,9 +327,12 @@ void DivergenceAnalysis::print(raw_ostream &OS, const Module *) const {
 }
 
 // class GPUDivergenceAnalysis
-GPUDivergenceAnalysis::GPUDivergenceAnalysis(Function & F, const DominatorTree & DT, const PostDominatorTree & PDT, const LoopInfo & LI, const TargetTransformInfo & TTI)
-    : BDA(DT, PDT, LI)
-    , DA(F, nullptr, DT, LI, BDA) {
+GPUDivergenceAnalysis::GPUDivergenceAnalysis(Function &F,
+                                             const DominatorTree &DT,
+                                             const PostDominatorTree &PDT,
+                                             const LoopInfo &LI,
+                                             const TargetTransformInfo &TTI)
+    : BDA(DT, PDT, LI), DA(F, nullptr, DT, LI, BDA) {
   for (auto &I : instructions(F)) {
     if (TTI.isSourceOfDivergence(&I)) {
       DA.markDivergent(I);
@@ -345,11 +359,9 @@ void GPUDivergenceAnalysis::print(raw_ostream &OS, const Module *mod) const {
   OS << "}\n";
 }
 
-
-
 // class LoopDivergenceAnalysis
-LoopDivergenceAnalysis::LoopDivergenceAnalysis(const DominatorTree & DT,
-                                               const LoopInfo & LI,
+LoopDivergenceAnalysis::LoopDivergenceAnalysis(const DominatorTree &DT,
+                                               const LoopInfo &LI,
                                                BranchDependenceAnalysis &BDA,
                                                const Loop &loop)
     : DA(*loop.getHeader()->getParent(), &loop, DT, LI, BDA) {
@@ -359,7 +371,8 @@ LoopDivergenceAnalysis::LoopDivergenceAnalysis(const DominatorTree & DT,
     DA.markDivergent(I);
   }
 
-  // after the scalar remainder loop is extracted, the loop exit condition will be uniform
+  // after the scalar remainder loop is extracted, the loop exit condition will
+  // be uniform
   auto loopExitingInst = loop.getExitingBlock()->getTerminator();
   auto loopExitCond = cast<BranchInst>(loopExitingInst)->getCondition();
   DA.addUniformOverride(*loopExitCond);
@@ -379,24 +392,26 @@ void LoopDivergenceAnalysis::print(raw_ostream &OS, const Module *mod) const {
 
 // class LoopDivergencePrinter
 bool LoopDivergencePrinter::runOnFunction(Function &F) {
-  const PostDominatorTree & PDT =
+  const PostDominatorTree &PDT =
       getAnalysis<PostDominatorTreeWrapperPass>().getPostDomTree();
-  const DominatorTree & DT =
+  const DominatorTree &DT =
       getAnalysis<DominatorTreeWrapperPass>().getDomTree();
-  const LoopInfo & LI = getAnalysis<LoopInfoWrapperPass>().getLoopInfo();
+  const LoopInfo &LI = getAnalysis<LoopInfoWrapperPass>().getLoopInfo();
   BDA = make_unique<BranchDependenceAnalysis>(DT, PDT, LI);
 
-  for (auto & BB : F) {
-    auto * loop = LI.getLoopFor(&BB);
-    if (!loop || loop->getHeader() != &BB) continue;
-    loopDivInfo.push_back(make_unique<LoopDivergenceAnalysis>(DT, LI, *BDA, *loop));
+  for (auto &BB : F) {
+    auto *loop = LI.getLoopFor(&BB);
+    if (!loop || loop->getHeader() != &BB)
+      continue;
+    loopDivInfo.push_back(
+        make_unique<LoopDivergenceAnalysis>(DT, LI, *BDA, *loop));
   }
 
   return false;
 }
 
 void LoopDivergencePrinter::print(raw_ostream &OS, const Module *mod) const {
-  for (auto & divInfo : loopDivInfo) {
+  for (auto &divInfo : loopDivInfo) {
     divInfo->print(OS, mod);
   }
 }

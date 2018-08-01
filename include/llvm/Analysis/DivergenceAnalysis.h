@@ -32,15 +32,17 @@ class TargetTransformInfo;
 // generic divergence analysis
 class DivergenceAnalysis {
 public:
-  DivergenceAnalysis(const Function & F, const Loop * regionLoop, const DominatorTree & DT, const LoopInfo & LI, BranchDependenceAnalysis &BDA);
+  DivergenceAnalysis(const Function &F, const Loop *regionLoop,
+                     const DominatorTree &DT, const LoopInfo &LI,
+                     BranchDependenceAnalysis &BDA);
 
-  const Loop* getRegionLoop() const { return regionLoop; }
-  const Function& getFunction() const { return F; }
+  const Loop *getRegionLoop() const { return regionLoop; }
+  const Function &getFunction() const { return F; }
 
-  bool inRegion(const Instruction & I) const;
+  bool inRegion(const Instruction &I) const;
 
   // mark @uniVal as a value that is always uniform
-  void addUniformOverride(const Value& uniVal);
+  void addUniformOverride(const Value &uniVal);
   void markDivergent(const Value &divVal);
 
   void compute(bool isLCSSA);
@@ -48,7 +50,7 @@ public:
   bool hasDetectedDivergence() const { return !divergentValues.empty(); }
 
   // whether @val will always return a uniform values regardless of its operands
-  bool isAlwaysUniform(const Value & val) const;
+  bool isAlwaysUniform(const Value &val) const;
 
   // whether @val is a divergent value
   bool isDivergent(const Value &val) const;
@@ -63,53 +65,52 @@ private:
   bool updateNormalInstruction(const Instruction &term) const;
 
   // taints all loop live out users
-  void taintLoopLiveOuts(const BasicBlock & loopHeader);
+  void taintLoopLiveOuts(const BasicBlock &loopHeader);
 
-  //mark all phis in @joinBlock as divergent
-  void markPHIsDivergent(const BasicBlock & joinBlock);
+  // mark all phis in @joinBlock as divergent
+  void markPHIsDivergent(const BasicBlock &joinBlock);
 
   // push all in-region users of @I
-  void pushUsers(const Instruction & I);
+  void pushUsers(const Instruction &I);
 
-  void markBlockTemporalDivergent(const BasicBlock & block) {
+  void markBlockTemporalDivergent(const BasicBlock &block) {
     temporalDivergentBlocks.insert(&block);
   }
 
-  void markBlockJoinDivergent(const BasicBlock & block) {
+  void markBlockJoinDivergent(const BasicBlock &block) {
     divergentJoinBlocks.insert(&block);
   }
 
-  bool isTemporalDivergent(const BasicBlock & block) const {
+  bool isTemporalDivergent(const BasicBlock &block) const {
     return temporalDivergentBlocks.count(&block);
   }
 
-  bool isJoinDivergent(const BasicBlock & block) const {
+  bool isJoinDivergent(const BasicBlock &block) const {
     return divergentJoinBlocks.count(&block);
   }
 
 private:
-  const Function & F;
+  const Function &F;
   // if regionLoop != nullptr, analyze only in the scope of the loop
   // Otw, analyze the whole function
-  const Loop * regionLoop;
+  const Loop *regionLoop;
 
-  const DominatorTree & DT;
-  const LoopInfo & LI;
+  const DominatorTree &DT;
+  const LoopInfo &LI;
   BranchDependenceAnalysis &BDA;
 
   // set of known-uniform values
   DenseSet<const Value *> uniformOverrides;
 
   // blocks with joining divergent control from different predecessors
-  DenseSet<const BasicBlock*> divergentJoinBlocks;
+  DenseSet<const BasicBlock *> divergentJoinBlocks;
 
   // blocks with joining divergent control from multiple loop iterations
-  DenseSet<const BasicBlock*> temporalDivergentBlocks;
+  DenseSet<const BasicBlock *> temporalDivergentBlocks;
 
   // detected/marked divergent values
   DenseSet<const Value *> divergentValues;
   std::vector<const Instruction *> worklist;
-
 };
 
 // divergence analysis frontend for GPU kernels
@@ -118,16 +119,13 @@ class GPUDivergenceAnalysis {
   DivergenceAnalysis DA;
 
 public:
-  GPUDivergenceAnalysis(
-      Function & F,
-      const DominatorTree & DT,
-      const PostDominatorTree & PDT,
-      const LoopInfo & LI,
-      const TargetTransformInfo & TTI);
+  GPUDivergenceAnalysis(Function &F, const DominatorTree &DT,
+                        const PostDominatorTree &PDT, const LoopInfo &LI,
+                        const TargetTransformInfo &TTI);
 
   bool hasDivergence() const { return DA.hasDetectedDivergence(); }
 
-  const Function & getFunction() const { return DA.getFunction(); }
+  const Function &getFunction() const { return DA.getFunction(); }
 
   // Returns true if V is divergent.
   bool isDivergent(const Value &val) const;
@@ -142,7 +140,8 @@ public:
 // divergence analysis frontend for loops
 class LoopDivergenceAnalysis {
 public:
-  LoopDivergenceAnalysis(const DominatorTree & DT, const LoopInfo & LI, BranchDependenceAnalysis &BDA, const Loop &loop);
+  LoopDivergenceAnalysis(const DominatorTree &DT, const LoopInfo &LI,
+                         BranchDependenceAnalysis &BDA, const Loop &loop);
 
   // Returns true if V is divergent.
   bool isDivergent(const Value &val) const;
@@ -176,7 +175,6 @@ public:
 private:
   std::unique_ptr<BranchDependenceAnalysis> BDA;
   SmallVector<std::unique_ptr<LoopDivergenceAnalysis>, 6> loopDivInfo;
-
 };
 
 } // namespace llvm
