@@ -200,6 +200,48 @@ public:
   void print(raw_ostream &OS, const Module *) const;
 };
 
+/// \brief Divergence analysis frontend for loops.
+class LoopDivergenceAnalysis {
+public:
+  LoopDivergenceAnalysis(const DominatorTree &DT, const LoopInfo &LI,
+                         SyncDependenceAnalysis &SDA, const Loop &loop);
+
+  /// Whether \p V is divergent.
+  bool isDivergent(const Value &V) const;
+
+  /// Whether \p V is uniform/non-divergent.
+  bool isUniform(const Value &V) const { return !isDivergent(V); }
+
+  /// Print all divergent values in the loop.
+  void print(raw_ostream &OS, const Module *) const;
+
+private:
+  DivergenceAnalysis DA;
+};
+
+/// \brief Loop divergence printer pass.
+/// This is intended for use in LIT testing.
+class LoopDivergencePrinter : public FunctionPass {
+public:
+  static char ID;
+
+  LoopDivergencePrinter() : FunctionPass(ID) {
+    initializeLoopDivergencePrinterPass(*PassRegistry::getPassRegistry());
+  }
+
+  void getAnalysisUsage(AnalysisUsage &AU) const override;
+
+  /// Analyze all loop-divergence of all loops in @F and print the results.
+  bool runOnFunction(Function &F) override;
+
+  /// Print all divergent values in the function.
+  void print(raw_ostream &OS, const Module *) const override;
+
+private:
+  std::unique_ptr<SyncDependenceAnalysis> SDA;
+  SmallVector<std::unique_ptr<LoopDivergenceAnalysis>, 6> LoopDivInfo;
+};
+
 } // namespace llvm
 
 #endif // LLVM_ANALYSIS_DIVERGENCE_ANALYSIS_H

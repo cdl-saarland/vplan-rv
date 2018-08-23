@@ -455,3 +455,79 @@ void GPUDivergenceAnalysis::print(raw_ostream &OS, const Module *mod) const {
   DA.print(OS, mod);
   OS << "}\n";
 }
+
+// class LoopDivergenceAnalysis
+LoopDivergenceAnalysis::LoopDivergenceAnalysis(const DominatorTree &DT,
+                                               const LoopInfo &LI,
+                                               SyncDependenceAnalysis &SDA,
+                                               const Loop &Loop)
+    : DA(*Loop.getHeader()->getParent(), &Loop, DT, LI, SDA, true) {
+  for (const auto &Phi : Loop.getHeader()->phis()) {
+    DA.markDivergent(Phi);
+  }
+
+  // after the scalar remainder loop is extracted, the loop exit condition will
+  // be uniform
+  auto LoopExitingInst = Loop.getExitingBlock()->getTerminator();
+  auto LoopExitCond = cast<BranchInst>(LoopExitingInst)->getCondition();
+  DA.addUniformOverride(*LoopExitCond);
+
+  DA.compute();
+}
+
+bool LoopDivergenceAnalysis::isDivergent(const Value &V) const {
+  return DA.isDivergent(V);
+}
+
+void LoopDivergenceAnalysis::print(raw_ostream &OS, const Module *Mod) const {
+  OS << "Divergence of loop " << DA.getRegionLoop()->getName() << " {\n";
+  DA.print(OS, Mod);
+  OS << "}\n";
+}
+
+// class LoopDivergencePrinter
+bool LoopDivergencePrinter::runOnFunction(Function &F) {
+  const PostDominatorTree &PDT =
+      getAnalysis<PostDominatorTreeWrapperPass>().getPostDomTree();
+  const DominatorTree &DT =
+      getAnalysis<DominatorTreeWrapperPass>().getDomTree();
+  const LoopInfo &LI = getAnalysis<LoopInfoWrapperPass>().getLoopInfo();
+  SDA = make_unique<SyncDependenceAnalysis>(DT, PDT, LI);
+
+  for (auto &BB : F) {
+    auto *Loop = LI.getLoopFor(&BB);
+    if (!Loop || Loop->getHeader() != &BB)
+      continue;
+    LoopDivInfo.push_back(
+        make_unique<LoopDivergenceAnalysis>(DT, LI, *SDA, *Loop));
+  }
+
+  return false;
+}
+
+void LoopDivergencePrinter::print(raw_ostream &OS, const Module *Mod) const {
+  for (auto &DivInfo : LoopDivInfo) {
+    DivInfo->print(OS, Mod);
+  }
+}
+
+// Register this pass.
+char LoopDivergencePrinter::ID = 0;
+INITIALIZE_PASS_BEGIN(LoopDivergencePrinter, "loop-divergence",
+                      "Loop Divergence Printer", false, true)
+INITIALIZE_PASS_DEPENDENCY(DominatorTreeWrapperPass)
+INITIALIZE_PASS_DEPENDENCY(PostDominatorTreeWrapperPass)
+INITIALIZE_PASS_DEPENDENCY(LoopInfoWrapperPass)
+INITIALIZE_PASS_END(LoopDivergencePrinter, "loop-divergence",
+                    "Loop Divergence Printer", false, true)
+
+FunctionPass *llvm::createLoopDivergencePrinterPass() {
+  return new LoopDivergencePrinter();
+}
+
+void LoopDivergencePrinter::getAnalysisUsage(AnalysisUsage &AU) const {
+  AU.addRequired<DominatorTreeWrapperPass>();
+  AU.addRequired<PostDominatorTreeWrapperPass>();
+  AU.addRequired<LoopInfoWrapperPass>();
+  AU.setPreservesAll();
+}
